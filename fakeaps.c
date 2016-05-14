@@ -39,6 +39,7 @@ http://www.togg.de/stuff/athrawsend.c
 #include <string.h>
 #include <assert.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #include <unistd.h>
 
@@ -56,6 +57,63 @@ http://www.togg.de/stuff/athrawsend.c
 #include  "ieee80211_radiotap.h"
 
 #include <endian.h> //Included to use htole16()
+
+
+//Constant variables
+#define WLAN_TAG_PARAM_SIZE 512
+#define PRISM_HEADER 144
+#define OWNED_MAC "\x30\x77\x6e\x65\x64\x21"
+int isprism=1;
+uint8_t ack_response[14];
+int sock = 0;
+uint16_t duration = 0x7FFF;
+int seq = 0;
+
+/* Definition of an authentication request/response */
+struct auth {
+  uint16_t frame_control;
+  uint16_t duration;
+  uint8_t da[6];
+  uint8_t sa[6];
+  uint8_t bssid[6];
+  uint16_t seq_ctrl;
+  uint16_t alg;
+  uint16_t seq;
+  uint16_t status;
+  /* We do not support shared key auth */
+} __attribute__ ((packed));
+
+/* Definition of an association request */
+struct asso_req {
+  uint16_t frame_control;
+  uint16_t duration;
+  uint8_t da[6];
+  uint8_t sa[6];
+  uint8_t bssid[6];
+  uint16_t seq_ctrl;
+  uint16_t capab_info;
+  uint16_t listen_interval;
+  uint8_t tags[WLAN_TAG_PARAM_SIZE];
+} __attribute__ ((packed));
+
+/* Definition of an association response */
+struct asso_resp {
+  uint16_t frame_control;
+  uint16_t duration;
+  uint8_t da[6];
+  uint8_t sa[6];
+  uint8_t bssid[6];
+  uint16_t seq_ctrl;
+  uint16_t capab_info;
+  uint16_t status;
+  uint16_t aid;
+  uint8_t tags[WLAN_TAG_PARAM_SIZE];
+} __attribute__ ((packed));
+
+typedef struct auth auth_t;
+typedef struct asso_req asso_req_t;
+typedef struct asso_resp asso_resp_t;
+
 
 int openSocket( const char device[IFNAMSIZ] )
 {
@@ -430,9 +488,147 @@ static const size_t numAccessPoints = sizeof(accessPoints) / sizeof(*accessPoint
 static const size_t PROBE_SSID_OFFSET = sizeof( struct ieee80211_frame );
 static const size_t BEACON_TIMESTAMP_OFFSET = sizeof( struct ieee80211_frame );
 
+int handle_auth_req (const u_char *packet_data)
+{
+
+    auth_t *auth_request = (auth_t *) ((u_char *) (packet_data + isprism * PRISM_HEADER));
+    
+    /* Check for frame from STA to OWNED_MAC */
+    if (memcmp(auth_request->da, OWNED_MAC, 6) != 0)
+        return (-1);
+
+   /* Authentication request should be ACKed */
+   /* Construct ACK frame and send it fastly */
+   memcpy(ack_response + 4, &packet_data[10 + isprism * PRISM_HEADER], 6);
+   send(sock, ack_response, 10, 0);
+   fprintf(stderr, "Info\t: %.2x:%.2x:%.2x:%.2x:%.2x:%.2x is being caught (Authentication Response)\n",
+   ack_response[4], ack_response[5], ack_response[6],
+   ack_response[7], ack_response[8], ack_response[9]); 
+
+    /* Check for sequence authentication */
+    if (auth_request->seq > 0x0001) {
+        fprintf(stderr, "Info\t: Unsupported sequence authentication\n");
+        return -1;
+        }
+
+    /* Check for shared key authentication */
+    if (auth_request->alg == 0x0002) {
+        fprintf(stderr, "Info\t: Unsupported shared key authentication\n");
+        return -1;
+        }
+
+    auth_t *auth_response;
+    auth_response = (auth_t *) malloc(sizeof(auth_t));
+    
+    auth_response->frame_control = 0xB0;
+    /* FIXME: Should use a calculated duration value thanks to request? */
+    auth_response->duration = duration;
+    memcpy(auth_response->da, &auth_request->sa, 6);
+    memcpy(auth_response->sa, &auth_request->da, 6);
+    memcpy(auth_response->bssid, &auth_request->bssid, 6);
+    auth_response->seq_ctrl = seq;
+    auth_response->alg = 0x0000;
+    auth_response->seq = 0x0002;
+    auth_response->status = 0x0000;
+
+    send(sock, auth_response, sizeof(auth_t), 0);
+
+    free(auth_response);
+
+    /* Update sequence number */
+    seq = (((seq & 0xFFF0) >> 4) + 1) << 4;
+
+return 0;
+}
+
+int handle_asso_req (const u_char *packet_data)
+{
+    uint16_t offset_req = 0, offset_resp = 0;
+    uint8_t tag_length;
+    uint8_t j;
+
+    asso_req_t *asso_request = (asso_req_t *) ((u_char *) (packet_data + isprism * PRISM_HEADER));
+
+    /* Check for frame from STA to OWNED_MAC */
+    if (memcmp(asso_request->da, OWNED_MAC, 6) != 0)
+        return (-1);
+
+    /* Association request should be ACKed */
+    /* Construct ACK frame and send it fastly */
+    memcpy(ack_response + 4, &packet_data[10 + isprism * PRISM_HEADER], 6);
+    send(sock, ack_response, 10, 0);
+    fprintf(stderr, "Info\t: %.2x:%.2x:%.2x:%.2x:%.2x:%.2x is being caught (Association Response)\n",
+    ack_response[4], ack_response[5], ack_response[6],
+    ack_response[7], ack_response[8], ack_response[9]); 
+
+    /* Retrieve the ESSID */
+    /* The first tag is generally the SSID tag */
+    /* Customized "unusual" probe requests should bypass this basic check */
+    if (asso_request->tags[0] == 0x00)
+    {
+    /* Check for SSID length */
+    if ((asso_request->tags[1] > 0x20) || (asso_request->tags[1] == 0x20))
+        {
+        fprintf(stderr, "Info\t: Association Request with [%.2x] essid length\n", asso_request->tags[1]);
+        return -1;
+        }
+    }
+    else
+    {
+       fprintf(stderr, "Info\t: Association Request with [%.2x] first tag\n", asso_request->tags[0]);
+        return -1;
+    }
+
+    offset_req = offset_req + 2 + asso_request->tags[1];
+
+    asso_resp_t *asso_response;
+    asso_response = (asso_resp_t *) malloc(sizeof(asso_resp_t));
+    
+    asso_response->frame_control = 0x10;
+    asso_response->duration = duration;
+    memcpy(asso_response->da, &asso_request->sa, 6);
+    memcpy(asso_response->sa, &asso_request->da, 6);
+    memcpy(asso_response->bssid, &asso_request->bssid, 6);
+    asso_response->seq_ctrl = seq;
+    /* FIXME: */
+    asso_response->capab_info = 0x0001;
+//    asso_response->capab_info = asso_request->capab_info;
+    asso_response->status = 0x0000;
+    /* FIXME: Check for aid consistency */
+    asso_response->aid = 0xc001;
+
+    /* Check for supported rates and send back appropriate rates */
+    /* FIXME: Clean this ugly section */
+    /* FIXME: An option should be to cut and paste probe request tags */
+    if (asso_request->tags[offset_req++] == 0x01) {
+        asso_response->tags[offset_resp++] = 0x01;
+        tag_length = asso_request->tags[offset_req++];
+        asso_response->tags[offset_resp++] = tag_length;
+        for (j = 0; j < tag_length; j++)
+        {
+            asso_response->tags[offset_resp + j] = asso_request->tags[offset_req + j];
+        }
+        offset_resp += tag_length;
+        }
+    else
+        {
+        fprintf(stderr, "Info\t: Association Request with unsupported data rates\n");
+        return -1;
+        }
+
+    send(sock, asso_response, 30 + offset_resp, 0);
+
+    free(asso_response);
+
+    /* Update sequence number */
+    seq = (((seq & 0xFFF0) >> 4) + 1) << 4;
+
+return 0;
+}
+
 void help()
 {
-	printf( "fakeaps [atheros raw device] [channel it is tuned to]\n" );
+	printf( "fakeaps [Wi-Fi raw device] [channel it is tuned to]\n" );
 }
 
 int main(int argc, char *argv[])
@@ -569,6 +765,7 @@ int main(int argc, char *argv[])
 							index = 0;
 						}
 						transmitProbeResponse( rawSocket, beaconPackets[index], beaconLengths[index], frame->i_addr2 );
+						//Here we must receive the ACK of the ProbeResponse and continue with Authentication
 						index += 1;
 					}
 				}
@@ -582,6 +779,7 @@ int main(int argc, char *argv[])
 							// It does!
 							//~ printf( "probe for SSID '%.*s'\n", info->info_length, (char*) info->info );
 							transmitProbeResponse( rawSocket, beaconPackets[i], beaconLengths[i], frame->i_addr2 );
+							//Here we must receive the ACK of the ProbeResponse and continue with Authentication
 							break;
 						}
 					}
