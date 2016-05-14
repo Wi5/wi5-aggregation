@@ -55,6 +55,8 @@ http://www.togg.de/stuff/athrawsend.c
 #include  "ieee80211.h"
 #include  "ieee80211_radiotap.h"
 
+#include <endian.h> //Included to use htole16()
+
 int openSocket( const char device[IFNAMSIZ] )
 {
 	struct ifreq ifr;
@@ -253,7 +255,7 @@ struct ieee80211_info_element {
 } __attribute__((__packed__));
 
 /** Converts a 16-bit integer from host byte order to little-endian byte order. Not implement yet. */
-inline uint16_t htole16( uint16_t src ) { return src; }
+//inline uint16_t htole16( uint16_t src ) { return src; }
 
 #define BEACON_INTERVAL 102400
 
