@@ -1,9 +1,20 @@
 /**
+UNDER CONSTRUCTION
+
+Code taken from the following website:
+
+http://www.evanjones.ca/software/fakeaps.c
+
+Thanks to Evan Jones for his work.
+
+And used to implement the authentication, association. And finally our purpose is to implement frame aggragation (A-MPDU).
+This changes will be made by Cristian Hernandez.
+
+TO USE IT YOU NEED A NETWORK DRIVER THAT SUPPORT RADIOTAP, OTHERWISE IT WON'T WORK AS EXPECTED
+
 Fake Access Points using Atheros wireless cards in Linux
 Written by Evan Jones <ejones@uwaterloo.ca>
-
 Released under a BSD Licence
-
 How to Use:
 1. Customize the array of access points below, if you want.
 2. Bring up your Atheros interface on the desired channel.
@@ -11,23 +22,15 @@ How to Use:
 4. Configure the raw device to use radiotap headers (echo "2" > /proc/sys/dev/ath0/rawdev_type)
 5. Bring up the raw device (ifconfig ath0raw up)
 6. Start this program (./fakeaps ath0raw [channel number for ath0])
-
 How to Compile:
 1. Get the "ieee80211.h" and "ieee80211_radiotap.h" headers from the MadWiFi
 distribution:
-
 http://cvs.sourceforge.net/viewcvs.py/madwifi/madwifi/net80211/
-
 2. gcc --std=gnu99 -Wall -o fakeaps fakeaps.c
-
-
 Thanks go out to John Bicket for his help in getting the raw device to work
 correctly, and getting it included in the MadWiFi driver.
-
 http://pdos.csail.mit.edu/~jbicket/
-
 Thanks also to Sebastian Weitzel for his athrawsend program:
-
 http://www.togg.de/stuff/athrawsend.c
 */
 
@@ -39,7 +42,6 @@ http://www.togg.de/stuff/athrawsend.c
 #include <string.h>
 #include <assert.h>
 #include <stdlib.h>
-#include <stdint.h>
 
 #include <unistd.h>
 
@@ -55,65 +57,6 @@ http://www.togg.de/stuff/athrawsend.c
 #define __packed __attribute__((__packed__))
 #include  "ieee80211.h"
 #include  "ieee80211_radiotap.h"
-
-#include <endian.h> //Included to use htole16()
-
-
-//Constant variables
-#define WLAN_TAG_PARAM_SIZE 512
-#define PRISM_HEADER 144
-#define OWNED_MAC "\x30\x77\x6e\x65\x64\x21"
-int isprism=1;
-uint8_t ack_response[14];
-int sock = 0;
-uint16_t duration = 0x7FFF;
-int seq = 0;
-
-/* Definition of an authentication request/response */
-struct auth {
-  uint16_t frame_control;
-  uint16_t duration;
-  uint8_t da[6];
-  uint8_t sa[6];
-  uint8_t bssid[6];
-  uint16_t seq_ctrl;
-  uint16_t alg;
-  uint16_t seq;
-  uint16_t status;
-  /* We do not support shared key auth */
-} __attribute__ ((packed));
-
-/* Definition of an association request */
-struct asso_req {
-  uint16_t frame_control;
-  uint16_t duration;
-  uint8_t da[6];
-  uint8_t sa[6];
-  uint8_t bssid[6];
-  uint16_t seq_ctrl;
-  uint16_t capab_info;
-  uint16_t listen_interval;
-  uint8_t tags[WLAN_TAG_PARAM_SIZE];
-} __attribute__ ((packed));
-
-/* Definition of an association response */
-struct asso_resp {
-  uint16_t frame_control;
-  uint16_t duration;
-  uint8_t da[6];
-  uint8_t sa[6];
-  uint8_t bssid[6];
-  uint16_t seq_ctrl;
-  uint16_t capab_info;
-  uint16_t status;
-  uint16_t aid;
-  uint8_t tags[WLAN_TAG_PARAM_SIZE];
-} __attribute__ ((packed));
-
-typedef struct auth auth_t;
-typedef struct asso_req asso_req_t;
-typedef struct asso_resp asso_resp_t;
-
 
 int openSocket( const char device[IFNAMSIZ] )
 {
@@ -372,9 +315,12 @@ uint8_t* constructBeaconPacket( uint8_t dataRate, uint8_t channel, const struct 
 	
 	// Beacon packet flags
 	dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_BEACON;
+	//printf("%i\n", *dot80211->i_fc);
 	dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
-	dot80211->i_dur[0] = 0x0;
-	dot80211->i_dur[1] = 0x0;
+	//printf("%i\n", *dot80211->i_fc);
+	//Add by CHdezFdez, using other beacon as example
+	dot80211->i_dur[0] = 0x3A;
+	dot80211->i_dur[1] = 0x01;
 	// Destination = broadcast (no retries)
 	memcpy( dot80211->i_addr1, IEEE80211_BROADCAST_ADDR, IEEE80211_ADDR_LEN );
 	// Source = our own mac address
@@ -389,7 +335,7 @@ uint8_t* constructBeaconPacket( uint8_t dataRate, uint8_t channel, const struct 
 	packetIterator += sizeof(*beacon);
 	remainingBytes -= sizeof(*beacon);
 	
-	beacon->beacon_timestamp = 0;
+	beacon->beacon_timestamp = getCurrentTimestamp();
 	// interval = 100 "time units" = 102.4 ms
 	// Each time unit is equal to 1024 us
 	beacon->beacon_interval = htole16( BEACON_INTERVAL/1024 );
@@ -425,8 +371,9 @@ uint8_t* constructBeaconPacket( uint8_t dataRate, uint8_t channel, const struct 
 	info->info_elemid = IEEE80211_ELEMID_DSPARMS;
 	info->info_length = sizeof(channel);
 	memcpy( info->info, &channel, sizeof(channel) );
-	
+
 	assert( remainingBytes == 0 );
+	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
 	return packet;
 }
 
@@ -454,11 +401,12 @@ void transmitProbeResponse( int rawSocket, uint8_t* beaconPacket, size_t beaconL
 
 // ADD MORE ACCESS POINTS HERE, IF YOU WANT
 static struct AccessPointDescriptor ap0 = {
-	{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc },
+	{ 0x1c, 0x4b, 0xd6, 0xed, 0x1e, 0xee },
 	(const uint8_t*) "ap0", 3,
 	IEEE80211B_DEFAULT_RATES, IEEE80211B_DEFAULT_RATES_LENGTH,
 };
 
+/* We don't need for our purpose more than one ap.
 static struct AccessPointDescriptor ap1 = {
 	{ 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54 },
 	(const uint8_t*) "ap1", 3,
@@ -477,10 +425,10 @@ static struct AccessPointDescriptor ap3 = {
 	{ 0xca, 0xfe, 0x00, 0xba, 0xbe, 0x00 },
 	(const uint8_t*) "ap3", 3,
 	IEEE80211B_DEFAULT_RATES, IEEE80211B_DEFAULT_RATES_LENGTH,
-};
+};*/
 
 static const struct AccessPointDescriptor* accessPoints[] = {
-	&ap0, &ap1, &ap2, &ap3,
+	&ap0, //&ap1, &ap2, &ap3,
 };
 static const size_t numAccessPoints = sizeof(accessPoints) / sizeof(*accessPoints);
 
@@ -488,147 +436,9 @@ static const size_t numAccessPoints = sizeof(accessPoints) / sizeof(*accessPoint
 static const size_t PROBE_SSID_OFFSET = sizeof( struct ieee80211_frame );
 static const size_t BEACON_TIMESTAMP_OFFSET = sizeof( struct ieee80211_frame );
 
-int handle_auth_req (const u_char *packet_data)
-{
-
-    auth_t *auth_request = (auth_t *) ((u_char *) (packet_data + isprism * PRISM_HEADER));
-    
-    /* Check for frame from STA to OWNED_MAC */
-    if (memcmp(auth_request->da, OWNED_MAC, 6) != 0)
-        return (-1);
-
-   /* Authentication request should be ACKed */
-   /* Construct ACK frame and send it fastly */
-   memcpy(ack_response + 4, &packet_data[10 + isprism * PRISM_HEADER], 6);
-   send(sock, ack_response, 10, 0);
-   fprintf(stderr, "Info\t: %.2x:%.2x:%.2x:%.2x:%.2x:%.2x is being caught (Authentication Response)\n",
-   ack_response[4], ack_response[5], ack_response[6],
-   ack_response[7], ack_response[8], ack_response[9]); 
-
-    /* Check for sequence authentication */
-    if (auth_request->seq > 0x0001) {
-        fprintf(stderr, "Info\t: Unsupported sequence authentication\n");
-        return -1;
-        }
-
-    /* Check for shared key authentication */
-    if (auth_request->alg == 0x0002) {
-        fprintf(stderr, "Info\t: Unsupported shared key authentication\n");
-        return -1;
-        }
-
-    auth_t *auth_response;
-    auth_response = (auth_t *) malloc(sizeof(auth_t));
-    
-    auth_response->frame_control = 0xB0;
-    /* FIXME: Should use a calculated duration value thanks to request? */
-    auth_response->duration = duration;
-    memcpy(auth_response->da, &auth_request->sa, 6);
-    memcpy(auth_response->sa, &auth_request->da, 6);
-    memcpy(auth_response->bssid, &auth_request->bssid, 6);
-    auth_response->seq_ctrl = seq;
-    auth_response->alg = 0x0000;
-    auth_response->seq = 0x0002;
-    auth_response->status = 0x0000;
-
-    send(sock, auth_response, sizeof(auth_t), 0);
-
-    free(auth_response);
-
-    /* Update sequence number */
-    seq = (((seq & 0xFFF0) >> 4) + 1) << 4;
-
-return 0;
-}
-
-int handle_asso_req (const u_char *packet_data)
-{
-    uint16_t offset_req = 0, offset_resp = 0;
-    uint8_t tag_length;
-    uint8_t j;
-
-    asso_req_t *asso_request = (asso_req_t *) ((u_char *) (packet_data + isprism * PRISM_HEADER));
-
-    /* Check for frame from STA to OWNED_MAC */
-    if (memcmp(asso_request->da, OWNED_MAC, 6) != 0)
-        return (-1);
-
-    /* Association request should be ACKed */
-    /* Construct ACK frame and send it fastly */
-    memcpy(ack_response + 4, &packet_data[10 + isprism * PRISM_HEADER], 6);
-    send(sock, ack_response, 10, 0);
-    fprintf(stderr, "Info\t: %.2x:%.2x:%.2x:%.2x:%.2x:%.2x is being caught (Association Response)\n",
-    ack_response[4], ack_response[5], ack_response[6],
-    ack_response[7], ack_response[8], ack_response[9]); 
-
-    /* Retrieve the ESSID */
-    /* The first tag is generally the SSID tag */
-    /* Customized "unusual" probe requests should bypass this basic check */
-    if (asso_request->tags[0] == 0x00)
-    {
-    /* Check for SSID length */
-    if ((asso_request->tags[1] > 0x20) || (asso_request->tags[1] == 0x20))
-        {
-        fprintf(stderr, "Info\t: Association Request with [%.2x] essid length\n", asso_request->tags[1]);
-        return -1;
-        }
-    }
-    else
-    {
-       fprintf(stderr, "Info\t: Association Request with [%.2x] first tag\n", asso_request->tags[0]);
-        return -1;
-    }
-
-    offset_req = offset_req + 2 + asso_request->tags[1];
-
-    asso_resp_t *asso_response;
-    asso_response = (asso_resp_t *) malloc(sizeof(asso_resp_t));
-    
-    asso_response->frame_control = 0x10;
-    asso_response->duration = duration;
-    memcpy(asso_response->da, &asso_request->sa, 6);
-    memcpy(asso_response->sa, &asso_request->da, 6);
-    memcpy(asso_response->bssid, &asso_request->bssid, 6);
-    asso_response->seq_ctrl = seq;
-    /* FIXME: */
-    asso_response->capab_info = 0x0001;
-//    asso_response->capab_info = asso_request->capab_info;
-    asso_response->status = 0x0000;
-    /* FIXME: Check for aid consistency */
-    asso_response->aid = 0xc001;
-
-    /* Check for supported rates and send back appropriate rates */
-    /* FIXME: Clean this ugly section */
-    /* FIXME: An option should be to cut and paste probe request tags */
-    if (asso_request->tags[offset_req++] == 0x01) {
-        asso_response->tags[offset_resp++] = 0x01;
-        tag_length = asso_request->tags[offset_req++];
-        asso_response->tags[offset_resp++] = tag_length;
-        for (j = 0; j < tag_length; j++)
-        {
-            asso_response->tags[offset_resp + j] = asso_request->tags[offset_req + j];
-        }
-        offset_resp += tag_length;
-        }
-    else
-        {
-        fprintf(stderr, "Info\t: Association Request with unsupported data rates\n");
-        return -1;
-        }
-
-    send(sock, asso_response, 30 + offset_resp, 0);
-
-    free(asso_response);
-
-    /* Update sequence number */
-    seq = (((seq & 0xFFF0) >> 4) + 1) << 4;
-
-return 0;
-}
-
 void help()
 {
-	printf( "fakeaps [Wi-Fi raw device] [channel it is tuned to]\n" );
+	printf( "fakeaps [raw device] [channel it is tuned to]\n" );
 }
 
 int main(int argc, char *argv[])
@@ -724,7 +534,7 @@ int main(int argc, char *argv[])
 			
 			// Get the 802.11 frame:
 			// NOTE: This frame structure is larger than some packet types, so only read the initial bytes
-			struct ieee80211_frame* frame = (struct ieee80211_frame*)( packetIterator );
+			//struct ieee80211_frame* frame = (struct ieee80211_frame*)( packetIterator ); //Delete to receive other kinds of packets.
 			
 			// Check to see if this is a PROBE_REQUEST
 			assert( (frame->i_fc[0] & IEEE80211_FC0_VERSION_MASK) == IEEE80211_FC0_VERSION_0 );
@@ -732,7 +542,9 @@ int main(int argc, char *argv[])
 			if ( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
 				(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_PROBE_REQ )
 			{
-				//~ packet_hexdump( (const uint8_t*) frame, remainingBytes );
+				/* To get sure that it receive a packet
+				printf("Packet received\n");
+				packet_hexdump( (const uint8_t*) frame, remainingBytes );*/
 				
 				// Locate the SSID
 				assert( remainingBytes >= PROBE_SSID_OFFSET );
@@ -765,7 +577,6 @@ int main(int argc, char *argv[])
 							index = 0;
 						}
 						transmitProbeResponse( rawSocket, beaconPackets[index], beaconLengths[index], frame->i_addr2 );
-						//Here we must receive the ACK of the ProbeResponse and continue with Authentication
 						index += 1;
 					}
 				}
@@ -779,7 +590,6 @@ int main(int argc, char *argv[])
 							// It does!
 							//~ printf( "probe for SSID '%.*s'\n", info->info_length, (char*) info->info );
 							transmitProbeResponse( rawSocket, beaconPackets[i], beaconLengths[i], frame->i_addr2 );
-							//Here we must receive the ACK of the ProbeResponse and continue with Authentication
 							break;
 						}
 					}
@@ -790,9 +600,9 @@ int main(int argc, char *argv[])
 		{
 			// We should only have 1 or 0 fds ready
 			assert( numFds == 0 );
+
 		}
-		
-		// Get the current time to calculate how much longer we need to wait
+			// Get the current time to calculate how much longer we need to wait
 		// or if we need to send a beacon now
 		int code = gettimeofday( &now, NULL );
 		assert( code == 0 );
@@ -804,13 +614,22 @@ int main(int argc, char *argv[])
 			// TODO: Update the timestamp in the beacon packets
 			for ( size_t i = 0; i < numAccessPoints; ++ i )
 			{
-				ssize_t bytes = write( rawSocket, beaconPackets[i], beaconLengths[i] );
-				assert( bytes == (ssize_t) beaconLengths[i] );
+				//Rebuild the beacon to update the timestamp
+				beaconPackets[i] = constructBeaconPacket( dataRate, channel, accessPoints[i], &beaconLengths[i] );
+
+				assert( beaconPackets[i] != NULL );
+				assert( beaconLengths[i] > 0 );
+
+				printf("%zuPrueba: \n",beaconLengths[i]);
+				ssize_t bytes = write( rawSocket, beaconPackets[i], beaconLengths[i]);
+				//printf("Beacon sent\n");
+				//packet_hexdump( (const uint8_t*) beaconPackets[i], beaconLengths[i] );
+				/*assert( bytes == (ssize_t) beaconLengths[i] );
 				if ( bytes < (ssize_t) beaconLengths[i] )
 				{
 					perror( "error sending packet" );
 					return 1;
-				}
+				}*/
 			}
 			
 			// Increment the next beacon time until it is in the future
@@ -818,6 +637,9 @@ int main(int argc, char *argv[])
 				incrementTimeval( &beaconTime, BEACON_INTERVAL );
 			} while( compareTimeval( &beaconTime, &now ) <= 0 );
 		}
+		
+		
+		
 	}
 	
 	close( rawSocket );
