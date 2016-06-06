@@ -4,7 +4,7 @@ This repository contains different software tools for implementing and testing 8
 We have started our work with Evan Jones' work "Fake Access Points using Atheros wireless cards in Linux," taken from the following website:
 http://www.evanjones.ca/software/fakeaps.c
 
-And we are extending it to implement the 802.11 authentication and association process.
+And we extended it to implement the 802.11 authentication and association process.
 
 Our final purpose is to implement frame aggregation (A-MPDU) between a "fake AP" and a normal terminal running 802.11n or 802.11ac.
 
