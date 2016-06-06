@@ -42,6 +42,7 @@ http://www.togg.de/stuff/athrawsend.c
 #include <string.h>
 #include <assert.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #include <unistd.h>
 
@@ -57,6 +58,28 @@ http://www.togg.de/stuff/athrawsend.c
 #define __packed __attribute__((__packed__))
 #include  "ieee80211.h"
 #include  "ieee80211_radiotap.h"
+
+#include <endian.h>
+
+#define WLAN_TAG_PARAM_SIZE 512
+
+/* Definition of an authentication request/response */
+struct ieee80211_authentication {
+  uint16_t alg;
+  uint16_t seq;
+  uint16_t status;
+  /* We do not support shared key auth */
+} __attribute__ ((packed));
+
+
+/* Definition of an association response */
+struct ieee80211_association_response {
+  uint16_t capab_info;
+  uint16_t status;
+  uint16_t aid;
+} __attribute__ ((packed));
+
+
 
 int openSocket( const char device[IFNAMSIZ] )
 {
@@ -399,33 +422,252 @@ void transmitProbeResponse( int rawSocket, uint8_t* beaconPacket, size_t beaconL
 	memcpy( dot80211->i_addr1, IEEE80211_BROADCAST_ADDR, IEEE80211_ADDR_LEN );
 }
 
+uint8_t* constructACKPacket( uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* ACKLength, const uint8_t* destinationMAC )
+{
+	uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
+	// For 802.11b, either 1 or 2 Mbps is the permitted rate for broadcasts
+	// For 802.11a, 6Mbps is the permitted rate for broadcasts
+	assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 ); 
+
+	// Packet size: radiotap header + 1 byte for rate + ieee80211_frame_ack header
+	*ACKLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame_ack);
+
+	uint8_t* packet = (uint8_t*) malloc( *ACKLength );
+	assert( packet != NULL );
+	if ( packet == NULL )
+	{
+		return NULL;
+	}
+	
+	size_t remainingBytes = *ACKLength;
+
+	// Add the radiotap header
+	assert( remainingBytes >= sizeof(struct ieee80211_radiotap_header) );
+	struct ieee80211_radiotap_header* radiotap = (struct ieee80211_radiotap_header*) packet;
+	uint8_t* packetIterator = packet + sizeof(*radiotap);
+	remainingBytes -= sizeof(*radiotap);
+	
+	radiotap->it_version = 0;
+	radiotap->it_len = sizeof(*radiotap) + sizeof(dataRate);
+	radiotap->it_present = (1 << IEEE80211_RADIOTAP_RATE);
+	
+	// Add the data rate for the radiotap header
+	assert( remainingBytes >= sizeof(dataRate) );
+	*packetIterator = (dataRate & IEEE80211_RATE_VAL);
+	packetIterator ++;
+	remainingBytes -= sizeof(dataRate);
+
+	// Build the 802.11 header for ACK
+	assert( remainingBytes >= sizeof(struct ieee80211_frame_ack) );
+	struct ieee80211_frame_ack* dot80211 = (struct ieee80211_frame_ack*) packetIterator;
+	packetIterator += sizeof(*dot80211);
+	remainingBytes -= sizeof(*dot80211);
+	
+	// ACK packet flags
+	dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_CTL | IEEE80211_FC0_SUBTYPE_ACK;
+	//printf("%i\n", *dot80211->i_fc);
+	dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
+	//printf("%i\n", *dot80211->i_fc);
+	//Added as an example
+	dot80211->i_dur[0] = 0x3A;
+	dot80211->i_dur[1] = 0x01;
+	// Destination 
+	memcpy( dot80211->i_ra, destinationMAC, IEEE80211_ADDR_LEN );
+
+	assert( remainingBytes == 0 );
+	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
+	return packet;
+}
+
+uint8_t* constructAuthResponse ( uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* authLength, const uint8_t* destinationMAC)
+{
+
+	uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
+	// For 802.11b, either 1 or 2 Mbps is the permitted rate for broadcasts
+	// For 802.11a, 6Mbps is the permitted rate for broadcasts
+	assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 );
+
+	*authLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) +
+	sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_authentication);
+
+	uint8_t* packet = (uint8_t*) malloc( *authLength );
+	assert( packet != NULL );
+	if ( packet == NULL )
+	{
+		return NULL;
+	}
+	
+	size_t remainingBytes = *authLength;
+	
+	// Add the radiotap header
+	assert( remainingBytes >= sizeof(struct ieee80211_radiotap_header) );
+	struct ieee80211_radiotap_header* radiotap = (struct ieee80211_radiotap_header*) packet;
+	uint8_t* packetIterator = packet + sizeof(*radiotap);
+	remainingBytes -= sizeof(*radiotap);
+	
+	radiotap->it_version = 0;
+	radiotap->it_len = sizeof(*radiotap) + sizeof(dataRate);
+	radiotap->it_present = (1 << IEEE80211_RADIOTAP_RATE);
+	
+	// Add the data rate for the radiotap header
+	assert( remainingBytes >= sizeof(dataRate) );
+	*packetIterator = (dataRate & IEEE80211_RATE_VAL);
+	packetIterator ++;
+	remainingBytes -= sizeof(dataRate);
+	
+	// Build the 802.11 header
+	assert( remainingBytes >= sizeof(struct ieee80211_frame) );
+	struct ieee80211_frame* dot80211 = (struct ieee80211_frame*) packetIterator;
+	packetIterator += sizeof(*dot80211);
+	remainingBytes -= sizeof(*dot80211);
+	
+	// Auth packet flags
+	dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_AUTH;
+	//printf("%i\n", *dot80211->i_fc);
+	dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
+	//printf("%i\n", *dot80211->i_fc);
+	//Add by CHdezFdez as an example
+	dot80211->i_dur[0] = 0x3A;
+	dot80211->i_dur[1] = 0x01;
+	// Destination 
+	memcpy( dot80211->i_addr1, destinationMAC, IEEE80211_ADDR_LEN );
+	// Source = our own mac address
+	memcpy( dot80211->i_addr2, apDescription->macAddress, IEEE80211_ADDR_LEN );
+	// BSS = our mac address
+	memcpy( dot80211->i_addr3, apDescription->macAddress, IEEE80211_ADDR_LEN );
+	// Sequence control: Automatically set by the driver
+	
+	// Add the authentication frame
+	assert( remainingBytes >= sizeof(struct ieee80211_authentication) );
+	struct ieee80211_authentication* auth = (struct ieee80211_authentication*) packetIterator;
+	packetIterator += sizeof(*auth);
+	remainingBytes -= sizeof(*auth);
+	
+	auth->alg = IEEE80211_AUTH_ALG_OPEN;
+	auth->seq = IEEE80211_AUTH_OPEN_RESPONSE;
+	auth->status = IEEE80211_STATUS_SUCCESS;
+	
+	assert( remainingBytes == 0 );
+	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
+	return packet;
+
+}
+
+uint8_t* constructAssoResponse ( uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* authLength, const uint8_t* destinationMAC)
+{
+
+	static uint8_t cont_AID = 1;
+	uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
+	// For 802.11b, either 1 or 2 Mbps is the permitted rate for broadcasts
+	// For 802.11a, 6Mbps is the permitted rate for broadcasts
+	assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 );
+
+	*authLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) +
+	sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_association_response) +
+	// SSID, rates, channel
+	sizeof(struct ieee80211_info_element)*3 + apDescription->ssidLength +
+	apDescription->dataRatesLength + sizeof(channel);
+
+	uint8_t* packet = (uint8_t*) malloc( *authLength );
+	assert( packet != NULL );
+	if ( packet == NULL )
+	{
+		return NULL;
+	}
+	
+	size_t remainingBytes = *authLength;
+	
+	// Add the radiotap header
+	assert( remainingBytes >= sizeof(struct ieee80211_radiotap_header) );
+	struct ieee80211_radiotap_header* radiotap = (struct ieee80211_radiotap_header*) packet;
+	uint8_t* packetIterator = packet + sizeof(*radiotap);
+	remainingBytes -= sizeof(*radiotap);
+	
+	radiotap->it_version = 0;
+	radiotap->it_len = sizeof(*radiotap) + sizeof(dataRate);
+	radiotap->it_present = (1 << IEEE80211_RADIOTAP_RATE);
+	
+	// Add the data rate for the radiotap header
+	assert( remainingBytes >= sizeof(dataRate) );
+	*packetIterator = (dataRate & IEEE80211_RATE_VAL);
+	packetIterator ++;
+	remainingBytes -= sizeof(dataRate);
+	
+	// Build the 802.11 header
+	assert( remainingBytes >= sizeof(struct ieee80211_frame) );
+	struct ieee80211_frame* dot80211 = (struct ieee80211_frame*) packetIterator;
+	packetIterator += sizeof(*dot80211);
+	remainingBytes -= sizeof(*dot80211);
+	
+	// Auth packet flags
+	dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_ASSOC_RESP;
+	//printf("%i\n", *dot80211->i_fc);
+	dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
+	//printf("%i\n", *dot80211->i_fc);
+	//Add by CHdezFdez as an example
+	dot80211->i_dur[0] = 0x3A;
+	dot80211->i_dur[1] = 0x01;
+	// Destination 
+	memcpy( dot80211->i_addr1, destinationMAC, IEEE80211_ADDR_LEN );
+	// Source = our own mac address
+	memcpy( dot80211->i_addr2, apDescription->macAddress, IEEE80211_ADDR_LEN );
+	// BSS = our mac address
+	memcpy( dot80211->i_addr3, apDescription->macAddress, IEEE80211_ADDR_LEN );
+	// Sequence control: Automatically set by the driver
+	
+	// Add the authentication frame
+	assert( remainingBytes >= sizeof(struct ieee80211_association_response) );
+	struct ieee80211_association_response* asso = (struct ieee80211_association_response*) packetIterator;
+	packetIterator += sizeof(*asso);
+	remainingBytes -= sizeof(*asso);
+	
+	asso->capab_info = htole16( 0x0001 ) ;
+	asso->status = IEEE80211_STATUS_SUCCESS;
+	asso->aid = cont_AID;
+	cont_AID = cont_AID+1;
+
+	// Add the SSID
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + apDescription->ssidLength );
+	struct ieee80211_info_element* info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + apDescription->ssidLength;
+	remainingBytes -= sizeof(struct ieee80211_info_element) + apDescription->ssidLength;
+	
+	info->info_elemid = IEEE80211_ELEMID_SSID;
+	info->info_length = apDescription->ssidLength;
+	memcpy( info->info, apDescription->ssid, apDescription->ssidLength );
+	
+	// Add the data rates
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + apDescription->dataRatesLength );
+	info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + apDescription->dataRatesLength;
+	remainingBytes -= sizeof(struct ieee80211_info_element) + apDescription->dataRatesLength;
+	
+	info->info_elemid = IEEE80211_ELEMID_RATES;
+	info->info_length = apDescription->dataRatesLength;
+	memcpy( info->info, apDescription->dataRates, apDescription->dataRatesLength );
+	
+	// Add the channel
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + sizeof(channel) );
+	info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + sizeof(channel);
+	remainingBytes -= sizeof(struct ieee80211_info_element) + sizeof(channel);
+	
+	info->info_elemid = IEEE80211_ELEMID_DSPARMS;
+	info->info_length = sizeof(channel);
+	memcpy( info->info, &channel, sizeof(channel) );
+
+	assert( remainingBytes == 0 );
+	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
+	return packet;
+
+}
+
 // ADD MORE ACCESS POINTS HERE, IF YOU WANT
 static struct AccessPointDescriptor ap0 = {
 	{ 0x1c, 0x4b, 0xd6, 0xed, 0x1e, 0xee },
 	(const uint8_t*) "ap0", 3,
 	IEEE80211B_DEFAULT_RATES, IEEE80211B_DEFAULT_RATES_LENGTH,
 };
-
-/* We don't need for our purpose more than one ap.
-static struct AccessPointDescriptor ap1 = {
-	{ 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54 },
-	(const uint8_t*) "ap1", 3,
-	IEEE80211B_DEFAULT_RATES, IEEE80211B_DEFAULT_RATES_LENGTH,
-};
-
-// Clients will only rarely detect this access point
-// I think it takes too long to get to this probe response
-static struct AccessPointDescriptor ap2 = {
-	{ 0xde, 0xad, 0xbe, 0xef, 0xff, 0xff },
-	(const uint8_t*) "ap2", 3,
-	IEEE80211B_DEFAULT_RATES, IEEE80211B_DEFAULT_RATES_LENGTH,
-};
-
-static struct AccessPointDescriptor ap3 = {
-	{ 0xca, 0xfe, 0x00, 0xba, 0xbe, 0x00 },
-	(const uint8_t*) "ap3", 3,
-	IEEE80211B_DEFAULT_RATES, IEEE80211B_DEFAULT_RATES_LENGTH,
-};*/
 
 static const struct AccessPointDescriptor* accessPoints[] = {
 	&ap0, //&ap1, &ap2, &ap3,
@@ -448,6 +690,12 @@ int main(int argc, char *argv[])
 		help();
 		return 1;
 	}
+	size_t ACKLength = (size_t) sizeof(size_t);
+	uint8_t* ACKPacket = (uint8_t*) (sizeof(uint8_t*));
+	size_t authLength = (size_t) sizeof(size_t);
+	uint8_t* authPacket = (uint8_t*) (sizeof(uint8_t*));
+	size_t assoLength = (size_t) sizeof(size_t);
+	uint8_t* assoPacket = (uint8_t*) (sizeof(uint8_t*));
 	
 	long int channel = strtol( argv[2], NULL, 10 );
 	if ( channel <= 0 || 255 <= channel )
@@ -534,10 +782,10 @@ int main(int argc, char *argv[])
 			
 			// Get the 802.11 frame:
 			// NOTE: This frame structure is larger than some packet types, so only read the initial bytes
-			//struct ieee80211_frame* frame = (struct ieee80211_frame*)( packetIterator ); //Delete to receive other kinds of packets.
+			struct ieee80211_frame* frame = (struct ieee80211_frame*)( packetIterator ); 
 			
 			// Check to see if this is a PROBE_REQUEST
-			assert( (frame->i_fc[0] & IEEE80211_FC0_VERSION_MASK) == IEEE80211_FC0_VERSION_0 );
+			//assert( (frame->i_fc[0] & IEEE80211_FC0_VERSION_MASK) == IEEE80211_FC0_VERSION_0 ); //Delete to receive other kinds of packets.
 			
 			if ( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
 				(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_PROBE_REQ )
@@ -554,7 +802,7 @@ int main(int argc, char *argv[])
 				assert( remainingBytes >= sizeof(*info) );
 				packetIterator += sizeof(*info);
 				remainingBytes -= sizeof(*info);
-				assert( remainingBytes >= info->info_length );
+				//assert( remainingBytes >= info->info_length );
 				
 				// See if it is a broadcast ssid (zero length SSID)
 				if ( info->info_length == 0 )
@@ -595,6 +843,38 @@ int main(int argc, char *argv[])
 					}
 				}
 			}
+			else if( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
+				(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_AUTH ) // We received an Authentication Request
+			{
+
+				
+				ACKPacket=constructACKPacket(dataRate, channel, accessPoints[0], &ACKLength, frame->i_addr2);
+				ssize_t bytes = write( rawSocket, ACKPacket, ACKLength );
+				assert( bytes == (ssize_t) ACKLength );
+				//printf("ACK sent\n");
+				//packet_hexdump( (const uint8_t*) ACKPacket, ACKLength );
+
+				authPacket = constructAuthResponse(dataRate, channel, accessPoints[0], &authLength, frame->i_addr2 );
+				bytes = write( rawSocket, authPacket, authLength);
+				assert(bytes == (ssize_t) authLength);
+				//printf("Authentication response sent\n");
+				//packet_hexdump((const uint8_t*) authPacket, authLength);
+
+			}
+			else if( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
+				(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_ASSOC_REQ ) // We received an Association Request
+			{
+				ACKPacket=constructACKPacket(dataRate, channel, accessPoints[0], &ACKLength, frame->i_addr2);
+				ssize_t bytes = write(rawSocket,ACKPacket,ACKLength);
+				assert(bytes == (ssize_t) ACKLength);
+				//printf("ACK sent\n");
+				//packet_hexdump( (const uint8_t*) ACKPacket, ACKLength);
+
+				assoPacket= constructAssoResponse(dataRate, channel, accessPoints[0], &assoLength, frame->i_addr2);
+				bytes = write(rawSocket, assoPacket, assoLength);
+				//printf("Association Response\n");
+				//packet_hexdump( (const uint8_t*) assoPacket, assoLength);
+			}
 		}
 		else
 		{
@@ -620,16 +900,16 @@ int main(int argc, char *argv[])
 				assert( beaconPackets[i] != NULL );
 				assert( beaconLengths[i] > 0 );
 
-				printf("%zuPrueba: \n",beaconLengths[i]);
+				//printf("Prueba: %zu\n",beaconLengths[i]);
 				ssize_t bytes = write( rawSocket, beaconPackets[i], beaconLengths[i]);
 				//printf("Beacon sent\n");
 				//packet_hexdump( (const uint8_t*) beaconPackets[i], beaconLengths[i] );
-				/*assert( bytes == (ssize_t) beaconLengths[i] );
+				assert( bytes == (ssize_t) beaconLengths[i] );
 				if ( bytes < (ssize_t) beaconLengths[i] )
 				{
 					perror( "error sending packet" );
 					return 1;
-				}*/
+				}
 			}
 			
 			// Increment the next beacon time until it is in the future

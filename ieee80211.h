@@ -200,7 +200,7 @@ struct ieee80211_frame_min {
 	u_int8_t	i_addr1[IEEE80211_ADDR_LEN];
 	u_int8_t	i_addr2[IEEE80211_ADDR_LEN];
 	/* FCS */
-} min__packed;
+} __packed;
 
 struct ieee80211_frame_rts {
 	u_int8_t	i_fc[2];
@@ -208,21 +208,21 @@ struct ieee80211_frame_rts {
 	u_int8_t	i_ra[IEEE80211_ADDR_LEN];
 	u_int8_t	i_ta[IEEE80211_ADDR_LEN];
 	/* FCS */
-} rts__packed;
+} __packed;
 
 struct ieee80211_frame_cts {
 	u_int8_t	i_fc[2];
 	u_int8_t	i_dur[2];
 	u_int8_t	i_ra[IEEE80211_ADDR_LEN];
 	/* FCS */
-} cts__packed;
+} __packed;
 
 struct ieee80211_frame_ack {
 	u_int8_t	i_fc[2];
 	u_int8_t	i_dur[2];
 	u_int8_t	i_ra[IEEE80211_ADDR_LEN];
 	/* FCS */
-} ack__packed;
+} __packed;
 
 struct ieee80211_frame_pspoll {
 	u_int8_t	i_fc[2];
@@ -230,7 +230,7 @@ struct ieee80211_frame_pspoll {
 	u_int8_t	i_bssid[IEEE80211_ADDR_LEN];
 	u_int8_t	i_ta[IEEE80211_ADDR_LEN];
 	/* FCS */
-} pspoll__packed;
+} __packed;
 
 struct ieee80211_frame_cfend {		/* NB: also CF-End+CF-Ack */
 	u_int8_t	i_fc[2];
@@ -238,7 +238,7 @@ struct ieee80211_frame_cfend {		/* NB: also CF-End+CF-Ack */
 	u_int8_t	i_ra[IEEE80211_ADDR_LEN];
 	u_int8_t	i_bssid[IEEE80211_ADDR_LEN];
 	/* FCS */
-} cfend__packed;
+} __packed;
 
 #ifdef _KERNEL
 static __inline int
