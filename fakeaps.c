@@ -1232,22 +1232,20 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-		for ( size_t i = 0; i < numAccessPoints; ++ i )
-	{
-		beaconPackets[i] = constructBeaconPacket( dataRate, channel, accessPoints[i], &beaconLengths[i] );
-		assert( beaconPackets[i] != NULL );
-		assert( beaconLengths[i] > 0 );
+	beaconPackets[0] = constructBeaconPacket( dataRate, channel, accessPoints[0], &beaconLengths[0] );
+	assert( beaconPackets[0] != NULL );
+	assert( beaconLengths[0] > 0 );
 
-		ssize_t bytes = write( rawSocket, beaconPackets[i], beaconLengths[i]);
-				//printf("Beacon sent\n");
-				//packet_hexdump( (const uint8_t*) beaconPackets[i], beaconLengths[i] );
-				assert( bytes == (ssize_t) beaconLengths[i] );
-				if ( bytes < (ssize_t) beaconLengths[i] )
-				{
-					perror( "error sending packet" );
-					return 1;
-				}
+	ssize_t bytes = write( rawSocket, beaconPackets[0], beaconLengths[0]);
+	//printf("Beacon sent\n");
+	//packet_hexdump( (const uint8_t*) beaconPackets[0], beaconLengths[0] );
+	assert( bytes == (ssize_t) beaconLengths[0] );
+	if ( bytes < (ssize_t) beaconLengths[0] )
+	{
+		perror( "error sending packet" );
+		return 1;
 	}
+
 
 	
 	// Configure the initial timeout
