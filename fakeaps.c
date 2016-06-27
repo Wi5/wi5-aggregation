@@ -115,6 +115,20 @@ struct ieee80211_ba_request
 	uint16_t BA_seq;
 }  __attribute__ ((packed));
 
+struct llc
+{
+	uint8_t DSAP;
+	uint8_t SSAP;
+	uint8_t control;
+} __attribute__ ((packed));
+
+struct snap
+{
+	uint16_t OID1;
+	uint8_t OID2;
+	uint16_t protocolID;
+} __attribute__ ((packed));
+
 struct pseudo_header //For doing the udp checksum
 {
     u_int32_t source_address;
@@ -878,7 +892,7 @@ uint8_t* constructADDBARequest ( uint8_t dataRate, uint8_t channel, const struct
 	token = token+1;
 	addBA->BA_params = htole16(0x1002);
 	addBA->BA_timeout = 0;
-	addBA->seq = 0;
+	addBA->seq = (uint16_t)seqnumber[1]<<8|(seqnumber[0]&0xf0);
 
 	// Add the SSID
 	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + apDescription->ssidLength );
@@ -897,20 +911,21 @@ uint8_t* constructADDBARequest ( uint8_t dataRate, uint8_t channel, const struct
 }
 
 uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* DataLength, uint8_t* sourceIP, 
-	uint8_t* dstIP ,const uint8_t* destinationMAC)
+	uint8_t* dstIP ,const uint8_t* destinationMAC, uint8_t numFrames)
 {
 	static uint32_t cont = 1502;
 
-	int numCharDatagram = 1400; // It should be lower than 1439 otherwise you will have a problem with the write.
+	int numCharDatagram = 200; // It should be lower than 1439 otherwise you will have a problem with the write.
 
 	uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
 	// For 802.11b, either 1 or 2 Mbps is the permitted rate for broadcasts
 	// For 802.11a, 6Mbps is the permitted rate for broadcasts
 	assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 );
 
-	*DataLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) +
-	sizeof(struct ieee80211_frame) + //sizeof(struct mpdu_delimiter) +
-	 sizeof(struct iphdr) + sizeof(struct udphdr) + numCharDatagram*sizeof(char);
+	*DataLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + numFrames*sizeof(struct mpdu_delimiter) +
+	sizeof(struct ieee80211_frame) + sizeof(struct llc) + sizeof(struct snap) + sizeof(struct iphdr) + sizeof(struct udphdr) +
+	numCharDatagram*sizeof(char) + (numFrames-1)*(sizeof(struct ieee80211_frame) + sizeof(struct llc) + sizeof(struct snap) +
+	sizeof(struct iphdr) + sizeof(struct udphdr) + numCharDatagram*sizeof(char));
 
 	uint8_t* packet = (uint8_t*) malloc( *DataLength );
 	assert( packet != NULL );
@@ -918,6 +933,8 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
 	{
 		return NULL;
 	}
+
+	int MPDUsize = sizeof(struct ieee80211_frame)+sizeof(struct llc)+sizeof(struct snap)+sizeof(struct iphdr)+sizeof(struct udphdr)+numCharDatagram*sizeof(char);
 	
 	size_t remainingBytes = *DataLength;
 	
@@ -937,114 +954,261 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
 	packetIterator ++;
 	remainingBytes -= sizeof(dataRate);
 	
-	// Build the 802.11 header
-	assert( remainingBytes >= sizeof(struct ieee80211_frame) );
-	struct ieee80211_frame* dot80211 = (struct ieee80211_frame*) packetIterator;
-	packetIterator += sizeof(*dot80211);
-	remainingBytes -= sizeof(*dot80211);
-	
-	// ADDBA packet flags
-	dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_DATA;
-	//printf("%i\n", *dot80211->i_fc);
-	dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
-	//printf("%i\n", *dot80211->i_fc);
-	//Add by CHdezFdez as an example
-	dot80211->i_dur[0] = 0x3A;
-	dot80211->i_dur[1] = 0x01;
-	// Destination 
-	memcpy( dot80211->i_addr1, destinationMAC, IEEE80211_ADDR_LEN );
-	// Source = our own mac address
-	memcpy( dot80211->i_addr2, apDescription->macAddress, IEEE80211_ADDR_LEN );
-	// BSS = our mac address
-	memcpy( dot80211->i_addr3, apDescription->macAddress, IEEE80211_ADDR_LEN );
-	// Sequence control
-	dot80211->i_seq[0] = seqnumber[0]&0xf0;
-	dot80211->i_seq[1] = seqnumber[1];
-
-	if(seqnumber[0]<0xf0)
+	if(numFrames==0)
 	{
-		seqnumber[0] += (1<<4);
-	}else{
-		seqnumber[0]=0;
-		seqnumber[1]++;
+		// Build the 802.11 header
+		assert( remainingBytes >= sizeof(struct ieee80211_frame) );
+		struct ieee80211_frame* dot80211 = (struct ieee80211_frame*) packetIterator;
+		packetIterator += sizeof(*dot80211);
+		remainingBytes -= sizeof(*dot80211);
+	
+		// ADDBA packet flags
+		dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_DATA;
+		//printf("%i\n", *dot80211->i_fc);
+		dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
+		//printf("%i\n", *dot80211->i_fc);
+		//Add by CHdezFdez as an example
+		dot80211->i_dur[0] = 0x3A;
+		dot80211->i_dur[1] = 0x01;
+		// Destination 
+		memcpy( dot80211->i_addr1, destinationMAC, IEEE80211_ADDR_LEN );
+		// Source = our own mac address
+		memcpy( dot80211->i_addr2, apDescription->macAddress, IEEE80211_ADDR_LEN );
+		// BSS = our mac address
+		memcpy( dot80211->i_addr3, apDescription->macAddress, IEEE80211_ADDR_LEN );
+		// Sequence control
+		dot80211->i_seq[0] = seqnumber[0]&0xf0;
+		dot80211->i_seq[1] = seqnumber[1];
+
+		if(seqnumber[0]<0xf0)
+		{
+			seqnumber[0] += (1<<4);
+		}else{
+			seqnumber[0]=0;
+			seqnumber[1]++;
+		}
+
+		assert(remainingBytes >= sizeof(struct llc) );
+		struct llc* llchdr = (struct llc*) packetIterator;
+		packetIterator += sizeof(*llchdr);
+		remainingBytes -= sizeof(*llchdr);
+
+		llchdr->DSAP = 0xAA;
+		llchdr->SSAP = 0xAA;
+		llchdr->control = 0x03;
+
+		assert(remainingBytes >= sizeof(struct snap) );
+		struct snap* snaphdr = (struct snap*) packetIterator;
+		packetIterator += sizeof(*snaphdr);
+		remainingBytes -= sizeof(*snaphdr);
+
+		snaphdr->OID1 = 0x0000;
+		snaphdr->OID2 = 0x00;
+		snaphdr->protocolID = 0x0008;
+
+		char *pseudogram;
+
+		// Add the IP header
+		assert( remainingBytes >= sizeof(struct iphdr) );
+		struct iphdr* iph = (struct iphdr*) packetIterator;
+		packetIterator += sizeof(*iph);
+		remainingBytes -= sizeof(*iph);
+     
+    	//UDP header
+	    assert( remainingBytes >= sizeof(struct udphdr) );
+		struct udphdr *udph = (struct udphdr *) packetIterator;
+		packetIterator += sizeof(*udph);
+		remainingBytes -= sizeof(*udph);
+
+		assert( remainingBytes >= numCharDatagram*sizeof(char) );
+    	char *data = (char *) packetIterator;
+    	//zero out the packet buffer
+	    memset (data, '0', numCharDatagram);
+    	//Data part
+    	strcpy(data , "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+		packetIterator += numCharDatagram*sizeof(char);
+		remainingBytes -= numCharDatagram*sizeof(char);
+     
+	    struct sockaddr_in sin;
+    	struct pseudo_header psh;
+
+    	sin.sin_family = AF_INET;
+	    sin.sin_port = htons(8080);
+    	u_int32_t source_address = ((((0x00000000 | *sourceIP<<24) | *(sourceIP+1)<<16) | *(sourceIP+2)<<8) | *(sourceIP));
+    	u_int32_t destination_address = ((((0x00000000 | *dstIP<<24) | *(dstIP+1)<<16) | *(dstIP+2)<<8) | *(dstIP));
+	    sin.sin_addr.s_addr = destination_address;
+     
+	    //Fill in the IP Header
+	    iph->ihl = 5;
+    	iph->version = 4;
+	    iph->tos = 0;
+    	iph->tot_len = htons(sizeof (struct iphdr) + sizeof (struct udphdr) + strlen(data));
+    	printf("%04x\n", iph->tot_len);
+	    iph->id = htons (cont); //Id of this packet
+    	cont++;
+    	iph->frag_off = 0;
+	    iph->ttl = 255;
+    	iph->protocol = IPPROTO_UDP;
+	    iph->saddr = source_address;    //Spoof the source ip address
+	    iph->daddr = destination_address;
+     
+		//Ip checksum
+    	iph->check = csum ((unsigned short *) iph, iph->tot_len);
+     
+	    //UDP header
+    	udph->source = htons (6666);
+	    udph->dest = htons (8622);
+    	udph->len = htons(sizeof(struct udphdr) + strlen(data)); //tcp header size
+    	udph->check = 0; //leave checksum 0 now, filled later by pseudo header
+	     
+		//Now the UDP checksum using the pseudo header
+    	psh.source_address = source_address;
+    	psh.dest_address = destination_address;
+	    psh.placeholder = 0;
+    	psh.protocol = IPPROTO_UDP;
+    	psh.udp_length = htons(sizeof(struct udphdr) + strlen(data) );
+		     	
+		int psize = sizeof(struct pseudo_header) + sizeof(struct udphdr) + strlen(data);
+    	pseudogram = malloc(psize);
+	     
+    	memcpy(pseudogram , (char*) &psh , sizeof (struct pseudo_header));
+    	memcpy(pseudogram + sizeof(struct pseudo_header) , udph , sizeof(struct udphdr) + strlen(data));
+     
+	    udph->check = csum( (unsigned short*) pseudogram , psize);
+	}else {
+		for(int i = 0; i<numFrames; i++)
+		{
+			assert( remainingBytes >= sizeof(struct mpdu_delimiter));
+			struct mpdu_delimiter* delim = (struct mpdu_delimiter*) packetIterator;
+			packetIterator += sizeof(*delim);
+			remainingBytes -= sizeof(*delim);
+
+			uint16_t aux = MPDUsize & 0x0fff;
+			delim->reservedAndLength = htons(aux);
+			delim->crc = csum( (unsigned short*) &delim->reservedAndLength , 16);
+			delim->delimiterSignature = htole16(0x4E);
+
+			assert( remainingBytes >= sizeof(struct ieee80211_frame) );
+			struct ieee80211_frame* dot80211 = (struct ieee80211_frame*) packetIterator;
+			packetIterator += sizeof(*dot80211);
+			remainingBytes -= sizeof(*dot80211);
+	
+			// ADDBA packet flags
+			dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_DATA;
+			//printf("%i\n", *dot80211->i_fc);
+			dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
+			//printf("%i\n", *dot80211->i_fc);
+			//Add by CHdezFdez as an example
+			dot80211->i_dur[0] = 0x3A;
+			dot80211->i_dur[1] = 0x01;
+			// Destination 
+			memcpy( dot80211->i_addr1, destinationMAC, IEEE80211_ADDR_LEN );
+			// Source = our own mac address
+			memcpy( dot80211->i_addr2, apDescription->macAddress, IEEE80211_ADDR_LEN );
+			// BSS = our mac address
+			memcpy( dot80211->i_addr3, apDescription->macAddress, IEEE80211_ADDR_LEN );
+			// Sequence control
+			dot80211->i_seq[0] = seqnumber[0]&0xf0;
+			dot80211->i_seq[1] = seqnumber[1];
+
+			if(seqnumber[0]<0xf0)
+			{
+				seqnumber[0] += (1<<4);
+			}else{
+				seqnumber[0]=0;
+				seqnumber[1]++;
+			}
+
+			assert(remainingBytes >= sizeof(struct llc) );
+			struct llc* llchdr = (struct llc*) packetIterator;
+			packetIterator += sizeof(*llchdr);
+			remainingBytes -= sizeof(*llchdr);
+
+			llchdr->DSAP = 0xAA;
+			llchdr->SSAP = 0xAA;
+			llchdr->control = 0x03;
+
+			assert(remainingBytes >= sizeof(struct snap) );
+			struct snap* snaphdr = (struct snap*) packetIterator;
+			packetIterator += sizeof(*snaphdr);
+			remainingBytes -= sizeof(*snaphdr);
+
+			snaphdr->OID1 = 0x0000;
+			snaphdr->OID2 = 0x00;
+			snaphdr->protocolID = 0x0008;
+
+	    	char *pseudogram;
+
+			// Add the IP header
+			assert( remainingBytes >= sizeof(struct iphdr) );
+			struct iphdr* iph = (struct iphdr*) packetIterator;
+			packetIterator += sizeof(*iph);
+			remainingBytes -= sizeof(*iph);
+     
+    		//UDP header
+	    	assert( remainingBytes >= sizeof(struct udphdr) );
+		    struct udphdr *udph = (struct udphdr *) packetIterator;
+			packetIterator += sizeof(*udph);
+			remainingBytes -= sizeof(*udph);
+
+			assert( remainingBytes >= numCharDatagram*sizeof(char) );
+    		char *data = (char *) packetIterator;
+    		//zero out the packet buffer
+	    	memset (data, '0', numCharDatagram);
+    		//Data part
+    		strcpy(data , "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+			packetIterator += numCharDatagram*sizeof(char);
+			remainingBytes -= numCharDatagram*sizeof(char);
+     
+	    	struct sockaddr_in sin;
+    		struct pseudo_header psh;
+
+    		sin.sin_family = AF_INET;
+	    	sin.sin_port = htons(8080);
+    		u_int32_t source_address = ((((0x00000000 | *sourceIP<<24) | *(sourceIP+1)<<16) | *(sourceIP+2)<<8) | *(sourceIP));
+    		u_int32_t destination_address = ((((0x00000000 | *dstIP<<24) | *(dstIP+1)<<16) | *(dstIP+2)<<8) | *(dstIP));
+	    	sin.sin_addr.s_addr = destination_address;
+     
+	    	//Fill in the IP Header
+    		iph->ihl = 5;
+    		iph->version = 4;
+	    	iph->tos = 0x00;
+    		iph->tot_len = (sizeof (struct iphdr) + sizeof (struct udphdr) + strlen(data));
+	    	iph->id = htons(cont); //Id of this packet
+    		cont++;
+    		iph->frag_off = 0;
+	    	iph->ttl = 255;
+    		iph->protocol = IPPROTO_UDP;
+	    	iph->saddr = source_address;    //Spoof the source ip address
+	    	iph->daddr = destination_address;
+     
+		    //Ip checksum
+    		iph->check = csum ((unsigned short *) iph, iph->tot_len);
+     
+	    	//UDP header
+    		udph->source = htons (6666);
+	    	udph->dest = htons (8622);
+    		udph->len = htons(sizeof(struct udphdr) + strlen(data)); //tcp header size
+    		udph->check = 0; //leave checksum 0 now, filled later by pseudo header
+	     
+		    //Now the UDP checksum using the pseudo header
+    		psh.source_address = source_address;
+    		psh.dest_address = destination_address;
+	    	psh.placeholder = 0;
+    		psh.protocol = IPPROTO_UDP;
+    		psh.udp_length = htons(sizeof(struct udphdr) + strlen(data) );
+		     	
+		    int psize = sizeof(struct pseudo_header) + sizeof(struct udphdr) + strlen(data);
+    		pseudogram = malloc(psize);
+	     
+    		memcpy(pseudogram , (char*) &psh , sizeof (struct pseudo_header));
+    		memcpy(pseudogram + sizeof(struct pseudo_header) , udph , sizeof(struct udphdr) + strlen(data));
+     
+	    	udph->check = csum( (unsigned short*) pseudogram , psize);
+		}
 	}
 	
-
-	/*assert( remainingBytes >= sizeof(struct mpdu_delimiter));
-	struct mpdu_delimiter* delim = (struct mpdu_delimiter*) packetIterator;
-	packetIterator += sizeof(*delim);
-	remainingBytes -= sizeof(*delim);
-
-	delim->reservedAndLength = htole16()*/
-
-    char *pseudogram;
-
-	// Add the IP header
-	assert( remainingBytes >= sizeof(struct iphdr) );
-	struct iphdr* iph = (struct iphdr*) packetIterator;
-	packetIterator += sizeof(*iph);
-	remainingBytes -= sizeof(*iph);
-     
-    //UDP header
-    assert( remainingBytes >= sizeof(struct udphdr) );
-    struct udphdr *udph = (struct udphdr *) packetIterator;
-	packetIterator += sizeof(*udph);
-	remainingBytes -= sizeof(*udph);
-
-	assert( remainingBytes >= numCharDatagram*sizeof(char) );
-    char *data = (char *) packetIterator;
-    //zero out the packet buffer
-    memset (data, '0', numCharDatagram);
-    //Data part
-    strcpy(data , "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
-	packetIterator += numCharDatagram*sizeof(char);
-	remainingBytes -= numCharDatagram*sizeof(char);
-     
-    struct sockaddr_in sin;
-    struct pseudo_header psh;
-
-    sin.sin_family = AF_INET;
-    sin.sin_port = htons(8080);
-    u_int32_t source_address = ((((0x00000000 | *sourceIP<<24) | *(sourceIP+1)<<16) | *(sourceIP+2)<<8) | *(sourceIP));
-    u_int32_t destination_address = ((((0x00000000 | *dstIP<<24) | *(dstIP+1)<<16) | *(dstIP+2)<<8) | *(dstIP));
-    sin.sin_addr.s_addr = destination_address;
-     
-    //Fill in the IP Header
-    iph->ihl = 5;
-    iph->version = 4;
-    iph->tos = 0;
-    iph->tot_len = sizeof (struct iphdr) + sizeof (struct udphdr) + strlen(data);
-    iph->id = htonl (cont); //Id of this packet
-    cont++;
-    iph->frag_off = 0;
-    iph->ttl = 255;
-    iph->protocol = IPPROTO_UDP;
-    iph->saddr = source_address;    //Spoof the source ip address
-    iph->daddr = destination_address;
-     
-    //Ip checksum
-    iph->check = csum ((unsigned short *) iph, iph->tot_len);
-     
-    //UDP header
-    udph->source = htons (6666);
-    udph->dest = htons (8622);
-    udph->len = htons(sizeof(struct udphdr) + strlen(data)); //tcp header size
-    udph->check = 0; //leave checksum 0 now, filled later by pseudo header
-     
-    //Now the UDP checksum using the pseudo header
-    psh.source_address = source_address;
-    psh.dest_address = destination_address;
-    psh.placeholder = 0;
-    psh.protocol = IPPROTO_UDP;
-    psh.udp_length = htons(sizeof(struct udphdr) + strlen(data) );
-     
-    int psize = sizeof(struct pseudo_header) + sizeof(struct udphdr) + strlen(data);
-    pseudogram = malloc(psize);
-     
-    memcpy(pseudogram , (char*) &psh , sizeof (struct pseudo_header));
-    memcpy(pseudogram + sizeof(struct pseudo_header) , udph , sizeof(struct udphdr) + strlen(data));
-     
-    udph->check = csum( (unsigned short*) pseudogram , psize);
+	
 
 	assert( remainingBytes == 0 );
 	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
@@ -1164,12 +1328,12 @@ static const size_t BEACON_TIMESTAMP_OFFSET = sizeof( struct ieee80211_frame );
 
 void help()
 {
-	printf( "fakeaps [raw device] [channel it is tuned to] [destination IP address using (.)] [destination MAC address using (:)]\n" );
+	printf( "fakeaps [raw device] [channel it is tuned to] [number of frames in each A-MPDU (0 means no frame aggregation)] [destination IP address using (.)] [destination MAC address using (:)]\n" );
 }
 
 int main(int argc, char *argv[])
 {
-	if ( argc != 5 )
+	if ( argc != 6 )
 	{
 		help();
 		return 1;
@@ -1188,9 +1352,9 @@ int main(int argc, char *argv[])
  	u_int8_t sourceIP[4];
  	parseIPAddresses(inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr), &sourceIP[0]);
 	u_int8_t dstIP[4];
-	parseIPAddresses(argv[3], &dstIP[0]);
+	parseIPAddresses(argv[4], &dstIP[0]);
 	u_int8_t dstMAC[6];
-	parseMACAddresses(argv[4], &dstMAC[0]);
+	parseMACAddresses(argv[5], &dstMAC[0]);
 
 	size_t ACKLength = (size_t) sizeof(size_t);
 	uint8_t* ACKPacket = (uint8_t*) (sizeof(uint8_t*));
@@ -1212,6 +1376,8 @@ int main(int argc, char *argv[])
 		help();
 		return 1;
 	}
+
+	uint8_t numFrames = atoi(argv[3]);
 
 		// The 802.11b base broadcast rate
 	const uint8_t dataRate = 0x2;
@@ -1314,9 +1480,9 @@ int main(int argc, char *argv[])
 				(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_PROBE_REQ )
 				{
 					// To get sure that it receive a probe request
-					printf("Probe Request received\n");
-					packet_hexdump( (const uint8_t*) frame, remainingBytes );
-					
+					//printf("Probe Request received\n");
+					//packet_hexdump( (const uint8_t*) frame, remainingBytes );
+
 					// Locate the SSID
 					assert( remainingBytes >= PROBE_SSID_OFFSET );
 					packetIterator += PROBE_SSID_OFFSET;
@@ -1405,21 +1571,26 @@ int main(int argc, char *argv[])
 					//printf("Association Response\n");
 					//packet_hexdump( (const uint8_t*) assoPacket, assoLength);
 
-					dataPacket = constructDataPacket(dataRate, channel, accessPoints[0], &dataPacketLength, sourceIP, dstIP ,frame->i_addr2);
-					bytes = write(rawSocket, dataPacket, dataPacketLength);
-					assert(bytes== (ssize_t) dataPacketLength);
-					//printf("Paquete de datos enviado\n");
-					//packet_hexdump( (const uint8_t*) dataPacket, dataPacketLength);
-
-					/*ADDBAPacket = constructADDBARequest(dataRate, channel, accessPoints[0], &addBALength, frame->i_addr2);
-					bytes = write(rawSocket, ADDBAPacket, addBALength);
-					assert(bytes == (ssize_t) addBALength);
-					//printf("ADDBA Request\n");
-					//packet_hexdump( (const uint8_t*) ADDBAPacket, addBALength);*/
+					if(numFrames!=0)
+					{
+						ADDBAPacket = constructADDBARequest(dataRate, channel, accessPoints[0], &addBALength, frame->i_addr2);
+						bytes = write(rawSocket, ADDBAPacket, addBALength);
+						assert(bytes == (ssize_t) addBALength);
+						//printf("ADDBA Request sent\n");
+						//packet_hexdump( (const uint8_t*) ADDBAPacket, addBALength);
+					}else {
+							dataPacket = constructDataPacket(dataRate, channel, accessPoints[0], &dataPacketLength, sourceIP, dstIP ,frame->i_addr2, numFrames);
+							bytes = write(rawSocket, dataPacket, dataPacketLength);
+							assert(bytes== (ssize_t) dataPacketLength);
+							//printf("Data Packet sent\n");
+							//packet_hexdump( (const uint8_t*) dataPacket, dataPacketLength);
+					}
+					
 				}
-				else if ( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
-					(frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_SUBTYPE_ACTION)
+				else if( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
+					(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_ACTION ) //We receive an Action Frame
 				{
+
 					packetIterator += sizeof(struct ieee80211_frame);
 					struct ieee80211_addba_response* addbaResponseFrame = (struct ieee80211_addba_response*)( packetIterator );
 
@@ -1427,8 +1598,19 @@ int main(int argc, char *argv[])
 					{
 						if(addbaResponseFrame->status == 0) // I check the status to know if the receiver can send Block Ack
 						{ 
-							//Here I must implement the A-MPDU sent
-							BARPacket = constructBARequest(dataRate, channel, accessPoints[0], &BARLength, frame->i_addr2);		
+							ACKPacket=constructACKPacket(dataRate, channel, accessPoints[0], &ACKLength, frame->i_addr2);
+							ssize_t bytes = write( rawSocket, ACKPacket, ACKLength );
+							assert( bytes == (ssize_t) ACKLength );
+							//printf("ACK sent\n");
+							//packet_hexdump( (const uint8_t*) ACKPacket, ACKLength );
+
+							dataPacket = constructDataPacket(dataRate, channel, accessPoints[0], &dataPacketLength, sourceIP, dstIP ,frame->i_addr2, numFrames);
+							bytes = write(rawSocket, dataPacket, dataPacketLength);
+							assert(bytes== (ssize_t) dataPacketLength);
+							//printf("Data Packet sent\n");
+							//packet_hexdump( (const uint8_t*) dataPacket, dataPacketLength);
+
+							//BARPacket = constructBARequest(dataRate, channel, accessPoints[0], &BARLength, frame->i_addr2);		
 						}else
 						{
 							perror("Device unable to do frame aggregation");
