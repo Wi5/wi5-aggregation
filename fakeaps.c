@@ -72,6 +72,7 @@ http://www.binarytides.com/raw-udp-sockets-c-linux/
 
 uint8_t seqnumber[2] = {0, 0};
 uint8_t firstSequence[2] = {0, 0};
+uint32_t mpduseq = 0;
 
 /* Definition of an authentication request/response */
 struct ieee80211_authentication {
@@ -109,6 +110,13 @@ struct ieee80211_addba_response
 	uint16_t BA_timeout;
 } __attribute__ ((packed));
 
+struct ieee80211_baframe {
+	u_int8_t	i_fc[2];
+	u_int8_t	i_dur[2];
+	u_int8_t	i_addr1[IEEE80211_ADDR_LEN];
+	u_int8_t	i_addr2[IEEE80211_ADDR_LEN];
+} __attribute__ ((packed));
+
 struct ieee80211_ba_request
 {
 	uint16_t BA_control;
@@ -143,6 +151,12 @@ struct mpdu_delimiter
 	u_int16_t reservedAndLength;
 	u_int8_t crc;
 	u_int8_t delimiterSignature;
+} __attribute__ ((packed));
+
+struct ampdu_status
+{
+	uint32_t reference;
+	uint16_t flags;
 } __attribute__ ((packed));
 
 int openSocket( const char device[IFNAMSIZ] )
@@ -231,28 +245,83 @@ void parseIPAddresses(char* data, u_int8_t* address)
 	}
 }
 
-unsigned short csum(unsigned short *ptr,int nbytes) 
+uint8_t checksum (uint8_t *buffer, int cantidad) {
+   register uint32_t suma = 0;
+   while (cantidad--) {
+      suma += *buffer++;
+      if (suma & 0xFFFF0000) {
+         /* hubo acarreo, se debe incrementar el resultado */
+         suma &= 0xFFFF;
+         suma++;
+      }
+   }
+   return ~(suma & 0xFFFF);
+} 
+
+/*uint8_t CRC8(uint8_t* bytes, int length)
 {
-    register long sum;
-    unsigned short oddbyte;
-    register short answer;
- 
-    sum=0;
-    while(nbytes>1) {
-        sum+=*ptr++;
-        nbytes-=2;
+    const uint8_t generator = 0x07;
+    uint8_t crc = 0; // start with 0 so first byte can be 'xored' in 
+
+    for (int i = 0; i < length; i++)
+    {
+        crc ^= *(bytes+i); // XOR-in the next input byte 
+
+        for (int j = 0; j < 8; j++)
+        {
+            if ((crc & 0x80) != 0)
+            {
+                crc = (uint8_t)((crc << 1) ^ generator);
+            }
+            else
+            {
+                crc <<= 1;
+            }
+        }
     }
-    if(nbytes==1) {
-        oddbyte=0;
-        *((u_char*)&oddbyte)=*(u_char*)ptr;
-        sum+=oddbyte;
+
+    return crc;
+}*/
+
+#define GP  0x107   /* x^8 + x^2 + x + 1 */
+#define DI  0x07
+
+
+static uint8_t crc8_table[256];     /* 8-bit table */
+static int made_table=0;
+
+static void init_crc8()
+     /*
+      * Should be called before any other crc function.  
+      */
+{
+  int i,j;
+  uint8_t crc;
+
+  if (!made_table) {
+    for (i=0; i<256; i++) {
+      crc = i;
+      for (j=0; j<8; j++)
+        crc = (crc << 1) ^ ((crc & 0x80) ? DI : 0);
+      crc8_table[i] = crc & 0xFF;
+      /* printf("table[%d] = %d (0x%X)\n", i, crc, crc); */
     }
- 
-    sum = (sum>>16)+(sum & 0xffff);
-    sum = sum + (sum>>16);
-    answer=(short)~sum;
-     
-    return(answer);
+    made_table=1;
+  }
+}
+
+
+void crc8(uint8_t *crc, uint8_t m)
+     /*
+      * For a byte array whose accumulated crc value is stored in *crc, computes
+      * resultant crc obtained by appending m to the byte array
+      */
+{
+  if (!made_table)
+    init_crc8();
+
+  *crc = crc8_table[(*crc) ^ m];
+  *crc &= 0xFF;
 }
 
 void packet_hexdump(const uint8_t* data, size_t size)
@@ -273,7 +342,7 @@ void packet_hexdump(const uint8_t* data, size_t size)
 
 
 /** Get the current 802.11 64-bit timestamp from the system time. */
-uint64_t getCurrentTimestamp()
+/*uint64_t getCurrentTimestamp()
 {
 	struct timeval t;
 	
@@ -293,7 +362,7 @@ uint64_t getCurrentTimestamp()
 	timestamp += t.tv_usec;
 	
 	return timestamp;
-}
+}*/
 
 /** Add increment microseconds to time, computing the overflow correctly. */
 void incrementTimeval( struct timeval* time, suseconds_t increment )
@@ -390,7 +459,7 @@ struct ieee80211_info_element {
 #define BEACON_INTERVAL 102400
 
 /** Returns a beacon packet for the specified descriptor. The packet will be allocated using malloc. */
-uint8_t* constructBeaconPacket( uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* beaconLength )
+void constructBeaconPacket(uint8_t* packet, uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* beaconLength )
 {
 	// Validate parameters
 	assert( apDescription != NULL );
@@ -399,24 +468,12 @@ uint8_t* constructBeaconPacket( uint8_t dataRate, uint8_t channel, const struct 
 	assert( 0 <= apDescription->ssidLength && apDescription->ssidLength <= 32 );
 	assert( 1 <= apDescription->dataRatesLength && apDescription->dataRatesLength <= 8 );
 	
-	uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
+	////uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
 	// For 802.11b, either 1 or 2 Mbps is the permitted rate for broadcasts
 	// For 802.11a, 6Mbps is the permitted rate for broadcasts
-	assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 ); 
+	//assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 ); 
 	
-	// Packet size: radiotap header + 1 byte for rate + ieee80211_frame header + beacon info + tags
-	*beaconLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) +
-		sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_beacon) +
-	// SSID, rates, channel
-		sizeof(struct ieee80211_info_element)*3 + apDescription->ssidLength +
-		apDescription->dataRatesLength + sizeof(channel);
-
-	uint8_t* packet = (uint8_t*) malloc( *beaconLength );
 	assert( packet != NULL );
-	if ( packet == NULL )
-	{
-		return NULL;
-	}
 	
 	size_t remainingBytes = *beaconLength;
 	
@@ -448,8 +505,8 @@ uint8_t* constructBeaconPacket( uint8_t dataRate, uint8_t channel, const struct 
 	dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
 	//printf("%i\n", *dot80211->i_fc);
 	//Add by CHdezFdez, using other beacon as example
-	dot80211->i_dur[0] = 0x3A;
-	dot80211->i_dur[1] = 0x01;
+	dot80211->i_dur[0] = 0x00;
+	dot80211->i_dur[1] = 0x00;
 	// Destination = broadcast (no retries)
 	memcpy( dot80211->i_addr1, IEEE80211_BROADCAST_ADDR, IEEE80211_ADDR_LEN );
 	// Source = our own mac address
@@ -474,12 +531,12 @@ uint8_t* constructBeaconPacket( uint8_t dataRate, uint8_t channel, const struct 
 	packetIterator += sizeof(*beacon);
 	remainingBytes -= sizeof(*beacon);
 	
-	beacon->beacon_timestamp = getCurrentTimestamp();
+	beacon->beacon_timestamp = 0x000000000000000000;//getCurrentTimestamp();
 	// interval = 100 "time units" = 102.4 ms
 	// Each time unit is equal to 1024 us
 	beacon->beacon_interval = htole16( BEACON_INTERVAL/1024 );
 	// capabilities = sent by ESS
-	beacon->beacon_capabilities = IEEE80211_CAPINFO_ESS | IEEE80211_CAPINFO_IMMEDIATE_B_ACK;
+	beacon->beacon_capabilities = IEEE80211_CAPINFO_ESS | IEEE80211_CAPINFO_IMMEDIATE_B_ACK | IEEE80211_CAPINFO_QOS;
 	
 	// Add the SSID
 	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + apDescription->ssidLength );
@@ -513,22 +570,66 @@ uint8_t* constructBeaconPacket( uint8_t dataRate, uint8_t channel, const struct 
 
 	assert( remainingBytes == 0 );
 	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
-	return packet;
+
 }
 
-void transmitProbeResponse( int rawSocket, uint8_t* beaconPacket, size_t beaconLength, const uint8_t* destinationMAC )
+void constructProbeResponse(uint8_t* packet, uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* probeResponseLength, const uint8_t* destinationMAC )
 {
-	// Probe responses are identical to beacon packets, except that
-	// they are directed and not broadcast, and they are
-	// set to be the probe response type
+	// Validate parameters
+	assert( apDescription != NULL );
+	assert( probeResponseLength != NULL );
 	
-	// Find the 802.11 frame
-	struct ieee80211_radiotap_header* radiotap = (struct ieee80211_radiotap_header*) beaconPacket;
-	struct ieee80211_frame* dot80211 = (struct ieee80211_frame*) (beaconPacket + radiotap->it_len);
+	assert( 0 <= apDescription->ssidLength && apDescription->ssidLength <= 32 );
+	assert( 1 <= apDescription->dataRatesLength && apDescription->dataRatesLength <= 8 );
+	
+	////uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
+	// For 802.11b, either 1 or 2 Mbps is the permitted rate for broadcasts
+	// For 802.11a, 6Mbps is the permitted rate for broadcasts
+	//assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 ); 
+	
+	// Packet size: radiotap header + 1 byte for rate + ieee80211_frame header + beacon info + tags
 
-	dot80211->i_fc[0] = IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_PROBE_RESP;
+	assert( packet != NULL );
+	
+	size_t remainingBytes = *probeResponseLength;
+	
+	// Add the radiotap header
+	assert( remainingBytes >= sizeof(struct ieee80211_radiotap_header) );
+	struct ieee80211_radiotap_header* radiotap = (struct ieee80211_radiotap_header*) packet;
+	uint8_t* packetIterator = packet + sizeof(*radiotap);
+	remainingBytes -= sizeof(*radiotap);
+	
+	radiotap->it_version = 0;
+	radiotap->it_len = sizeof(*radiotap) + sizeof(dataRate);
+	radiotap->it_present = (1 << IEEE80211_RADIOTAP_RATE);
+
+	// Add the data rate for the radiotap header
+	assert( remainingBytes >= sizeof(dataRate) );
+	*packetIterator = (dataRate & IEEE80211_RATE_VAL);
+	packetIterator ++;
+	remainingBytes -= sizeof(dataRate);
+	
+	// Build the 802.11 header
+	assert( remainingBytes >= sizeof(struct ieee80211_frame) );
+	struct ieee80211_frame* dot80211 = (struct ieee80211_frame*) packetIterator;
+	packetIterator += sizeof(*dot80211);
+	remainingBytes -= sizeof(*dot80211);
+	
+	// Beacon packet flags
+	dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_PROBE_RESP;
+	//printf("%i\n", *dot80211->i_fc);
+	dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
+	//printf("%i\n", *dot80211->i_fc);
+	//Add by CHdezFdez, using other beacon as example
+	dot80211->i_dur[0] = 0x00;
+	dot80211->i_dur[1] = 0x00;
+	// Destination = broadcast (no retries)
 	memcpy( dot80211->i_addr1, destinationMAC, IEEE80211_ADDR_LEN );
-
+	// Source = our own mac address
+	memcpy( dot80211->i_addr2, apDescription->macAddress, IEEE80211_ADDR_LEN );
+	// BSS = our mac address
+	memcpy( dot80211->i_addr3, apDescription->macAddress, IEEE80211_ADDR_LEN );
+	// Sequence control
 	dot80211->i_seq[0] = seqnumber[0]&0xf0;
 	dot80211->i_seq[1] = seqnumber[1];
 
@@ -539,33 +640,64 @@ void transmitProbeResponse( int rawSocket, uint8_t* beaconPacket, size_t beaconL
 		seqnumber[0]=0;
 		seqnumber[1]++;
 	}
-		
-	// Send the packet
-	ssize_t bytes = write( rawSocket, beaconPacket, beaconLength );
-	assert( bytes == (ssize_t) beaconLength );
-	//printf("Probe Response Sent\n");
 	
-	// Set the values back to what they should be for broadcast packets
-	dot80211->i_fc[0] = IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_BEACON;
-	memcpy( dot80211->i_addr1, IEEE80211_BROADCAST_ADDR, IEEE80211_ADDR_LEN );
+	// Add the beacon frame
+	assert( remainingBytes >= sizeof(struct ieee80211_beacon) );
+	struct ieee80211_beacon* beacon = (struct ieee80211_beacon*) packetIterator;
+	packetIterator += sizeof(*beacon);
+	remainingBytes -= sizeof(*beacon);
+	
+	beacon->beacon_timestamp = 0x000000000000000000;//getCurrentTimestamp();
+	// interval = 100 "time units" = 102.4 ms
+	// Each time unit is equal to 1024 us
+	beacon->beacon_interval = htole16( BEACON_INTERVAL/1024 );
+	// capabilities = sent by ESS
+	beacon->beacon_capabilities = IEEE80211_CAPINFO_ESS | IEEE80211_CAPINFO_IMMEDIATE_B_ACK | IEEE80211_CAPINFO_QOS;
+	
+	// Add the SSID
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + apDescription->ssidLength );
+	struct ieee80211_info_element* info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + apDescription->ssidLength;
+	remainingBytes -= sizeof(struct ieee80211_info_element) + apDescription->ssidLength;
+	
+	info->info_elemid = IEEE80211_ELEMID_SSID;
+	info->info_length = apDescription->ssidLength;
+	memcpy( info->info, apDescription->ssid, apDescription->ssidLength );
+	
+	// Add the data rates
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + apDescription->dataRatesLength );
+	info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + apDescription->dataRatesLength;
+	remainingBytes -= sizeof(struct ieee80211_info_element) + apDescription->dataRatesLength;
+	
+	info->info_elemid = IEEE80211_ELEMID_RATES;
+	info->info_length = apDescription->dataRatesLength;
+	memcpy( info->info, apDescription->dataRates, apDescription->dataRatesLength );
+	
+	// Add the channel
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + sizeof(channel) );
+	info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + sizeof(channel);
+	remainingBytes -= sizeof(struct ieee80211_info_element) + sizeof(channel);
+	
+	info->info_elemid = IEEE80211_ELEMID_DSPARMS;
+	info->info_length = sizeof(channel);
+	memcpy( info->info, &channel, sizeof(channel) );
+
+	assert( remainingBytes == 0 );
+	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
 }
 
-uint8_t* constructACKPacket( uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* ACKLength, const uint8_t* destinationMAC )
+/*void constructACKPacket(uint8_t packet, uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* ACKLength, const uint8_t* destinationMAC )
 {
-	uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
+	//uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
 	// For 802.11b, either 1 or 2 Mbps is the permitted rate for broadcasts
 	// For 802.11a, 6Mbps is the permitted rate for broadcasts
-	assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 ); 
+	//assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 ); 
 
 	// Packet size: radiotap header + 1 byte for rate + ieee80211_frame_ack header
-	*ACKLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame_ack);
-
-	uint8_t* packet = (uint8_t*) malloc( *ACKLength );
+	
 	assert( packet != NULL );
-	if ( packet == NULL )
-	{
-		return NULL;
-	}
 	
 	size_t remainingBytes = *ACKLength;
 
@@ -597,33 +729,25 @@ uint8_t* constructACKPacket( uint8_t dataRate, uint8_t channel, const struct Acc
 	dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
 	//printf("%i\n", *dot80211->i_fc);
 	//Added as an example
-	dot80211->i_dur[0] = 0x3A;
-	dot80211->i_dur[1] = 0x01;
+	dot80211->i_dur[0] = 0x00;
+	dot80211->i_dur[1] = 0x00;
 	// Destination 
 	memcpy( dot80211->i_ra, destinationMAC, IEEE80211_ADDR_LEN );
 
 	assert( remainingBytes == 0 );
 	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
-	return packet;
-}
+}*/
 
-uint8_t* constructAuthResponse ( uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* authLength, const uint8_t* destinationMAC)
+void constructAuthResponse (uint8_t* packet, uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* authLength, const uint8_t* destinationMAC)
 {
 
-	uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
+	//uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
 	// For 802.11b, either 1 or 2 Mbps is the permitted rate for broadcasts
 	// For 802.11a, 6Mbps is the permitted rate for broadcasts
-	assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 );
+	//assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 );
 
-	*authLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) +
-	sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_authentication);
 
-	uint8_t* packet = (uint8_t*) malloc( *authLength );
 	assert( packet != NULL );
-	if ( packet == NULL )
-	{
-		return NULL;
-	}
 	
 	size_t remainingBytes = *authLength;
 	
@@ -655,8 +779,8 @@ uint8_t* constructAuthResponse ( uint8_t dataRate, uint8_t channel, const struct
 	dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
 	//printf("%i\n", *dot80211->i_fc);
 	//Add by CHdezFdez as an example
-	dot80211->i_dur[0] = 0x3A;
-	dot80211->i_dur[1] = 0x01;
+	dot80211->i_dur[0] = 0x00;
+	dot80211->i_dur[1] = 0x00;
 	// Destination 
 	memcpy( dot80211->i_addr1, destinationMAC, IEEE80211_ADDR_LEN );
 	// Source = our own mac address
@@ -687,31 +811,18 @@ uint8_t* constructAuthResponse ( uint8_t dataRate, uint8_t channel, const struct
 	
 	assert( remainingBytes == 0 );
 	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
-	return packet;
-
 }
 
-uint8_t* constructAssoResponse ( uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* assoLength, const uint8_t* destinationMAC)
+void constructAssoResponse (uint8_t* packet, uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* assoLength, const uint8_t* destinationMAC)
 {
 
 	static uint8_t cont_AID = 1;
-	uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
+	//uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
 	// For 802.11b, either 1 or 2 Mbps is the permitted rate for broadcasts
 	// For 802.11a, 6Mbps is the permitted rate for broadcasts
-	assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 );
+	//assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 );
 
-	*assoLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) +
-	sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_association_response) +
-	// SSID, rates, channel
-	sizeof(struct ieee80211_info_element)*3 + apDescription->ssidLength +
-	apDescription->dataRatesLength + sizeof(channel);
-
-	uint8_t* packet = (uint8_t*) malloc( *assoLength );
 	assert( packet != NULL );
-	if ( packet == NULL )
-	{
-		return NULL;
-	}
 	
 	size_t remainingBytes = *assoLength;
 	
@@ -743,8 +854,8 @@ uint8_t* constructAssoResponse ( uint8_t dataRate, uint8_t channel, const struct
 	dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
 	//printf("%i\n", *dot80211->i_fc);
 	//Add by CHdezFdez as an example
-	dot80211->i_dur[0] = 0x3A;
-	dot80211->i_dur[1] = 0x01;
+	dot80211->i_dur[0] = 0x00;
+	dot80211->i_dur[1] = 0x00;
 	// Destination 
 	memcpy( dot80211->i_addr1, destinationMAC, IEEE80211_ADDR_LEN );
 	// Source = our own mac address
@@ -769,7 +880,7 @@ uint8_t* constructAssoResponse ( uint8_t dataRate, uint8_t channel, const struct
 	packetIterator += sizeof(*asso);
 	remainingBytes -= sizeof(*asso);
 	
-	asso->capab_info = IEEE80211_CAPINFO_ESS | IEEE80211_CAPINFO_IMMEDIATE_B_ACK ;
+	asso->capab_info = IEEE80211_CAPINFO_ESS | IEEE80211_CAPINFO_IMMEDIATE_B_ACK | IEEE80211_CAPINFO_QOS;
 	asso->status = IEEE80211_STATUS_SUCCESS;
 	asso->aid = cont_AID;
 	cont_AID = cont_AID+1;
@@ -806,30 +917,19 @@ uint8_t* constructAssoResponse ( uint8_t dataRate, uint8_t channel, const struct
 
 	assert( remainingBytes == 0 );
 	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
-	return packet;
 
 }
 
-uint8_t* constructADDBARequest ( uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* addBALength, const uint8_t* destinationMAC)
+void constructADDBARequest (uint8_t* packet, uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* addBALength, const uint8_t* destinationMAC)
 {
 	static uint8_t token = 1;
-	uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
+	//uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
 	// For 802.11b, either 1 or 2 Mbps is the permitted rate for broadcasts
 	// For 802.11a, 6Mbps is the permitted rate for broadcasts
-	assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 );
+	//assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 );
 
-	*addBALength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) +
-	sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_addba_request) +
-	// SSID
-	sizeof(struct ieee80211_info_element) + apDescription->ssidLength;
-
-	uint8_t* packet = (uint8_t*) malloc( *addBALength );
 	assert( packet != NULL );
-	if ( packet == NULL )
-	{
-		return NULL;
-	}
-	
+		
 	size_t remainingBytes = *addBALength;
 	
 	// Add the radiotap header
@@ -860,8 +960,8 @@ uint8_t* constructADDBARequest ( uint8_t dataRate, uint8_t channel, const struct
 	dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
 	//printf("%i\n", *dot80211->i_fc);
 	//Add by CHdezFdez as an example
-	dot80211->i_dur[0] = 0x3A;
-	dot80211->i_dur[1] = 0x01;
+	dot80211->i_dur[0] = 0x00;
+	dot80211->i_dur[1] = 0x00;
 	// Destination 
 	memcpy( dot80211->i_addr1, destinationMAC, IEEE80211_ADDR_LEN );
 	// Source = our own mac address
@@ -906,44 +1006,40 @@ uint8_t* constructADDBARequest ( uint8_t dataRate, uint8_t channel, const struct
 	
 	assert( remainingBytes == 0 );
 	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
-	return packet;
 
 }
 
-uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* DataLength, uint8_t* sourceIP, 
+void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* DataLength, uint8_t* sourceIP, 
 	uint8_t* dstIP ,const uint8_t* destinationMAC, uint8_t numFrames)
 {
 	static uint32_t cont = 1502;
 
-	int numCharDatagram = 200; // It should be lower than 1439 otherwise you will have a problem with the write.
+	int numCharDatagram = 6; // It should be lower than 1439 otherwise you will have a problem with the write.
 
-	uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
+	//uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
 	// For 802.11b, either 1 or 2 Mbps is the permitted rate for broadcasts
 	// For 802.11a, 6Mbps is the permitted rate for broadcasts
-	assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 );
+	//assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 );
+	int zeropadding = 0;
 
-	*DataLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + numFrames*sizeof(struct mpdu_delimiter) +
-	sizeof(struct ieee80211_frame) + sizeof(struct llc) + sizeof(struct snap) + sizeof(struct iphdr) + sizeof(struct udphdr) +
-	numCharDatagram*sizeof(char) + (numFrames-1)*(sizeof(struct ieee80211_frame) + sizeof(struct llc) + sizeof(struct snap) +
-	sizeof(struct iphdr) + sizeof(struct udphdr) + numCharDatagram*sizeof(char));
-
-	uint8_t* packet = (uint8_t*) malloc( *DataLength );
-	assert( packet != NULL );
-	if ( packet == NULL )
+	int MPDUsize = sizeof(struct ieee80211_qosframe)+sizeof(struct llc)+sizeof(struct snap)+sizeof(struct iphdr)+sizeof(struct udphdr)+numCharDatagram*sizeof(char);
+	printf("%d\n", MPDUsize);
+	if((MPDUsize%4)!=0)
 	{
-		return NULL;
+		zeropadding = (4-(MPDUsize%4));
+		MPDUsize += zeropadding;
 	}
 
-	int MPDUsize = sizeof(struct ieee80211_frame)+sizeof(struct llc)+sizeof(struct snap)+sizeof(struct iphdr)+sizeof(struct udphdr)+numCharDatagram*sizeof(char);
-	
+	assert( packet != NULL );
+
 	size_t remainingBytes = *DataLength;
-	
+
 	// Add the radiotap header
 	assert( remainingBytes >= sizeof(struct ieee80211_radiotap_header) );
 	struct ieee80211_radiotap_header* radiotap = (struct ieee80211_radiotap_header*) packet;
 	uint8_t* packetIterator = packet + sizeof(*radiotap);
 	remainingBytes -= sizeof(*radiotap);
-	
+
 	radiotap->it_version = 0;
 	radiotap->it_len = sizeof(*radiotap) + sizeof(dataRate);
 	radiotap->it_present = (1 << IEEE80211_RADIOTAP_RATE);
@@ -953,23 +1049,35 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
 	*packetIterator = (dataRate & IEEE80211_RATE_VAL);
 	packetIterator ++;
 	remainingBytes -= sizeof(dataRate);
+
+	/*if(numFrames!=0) {
+		assert( remainingBytes >= sizeof(struct ampdu_status) );
+		struct ampdu_status* status = (struct ampdu_status*) packetIterator;
+		packetIterator += sizeof(*status);
+		remainingBytes -= sizeof(*status);
+
+		status->reference = mpduseq;
+		mpduseq ++;
+		status->flags = 0x0000;
+	}*/
+	
 	
 	if(numFrames==0)
 	{
 		// Build the 802.11 header
-		assert( remainingBytes >= sizeof(struct ieee80211_frame) );
-		struct ieee80211_frame* dot80211 = (struct ieee80211_frame*) packetIterator;
+		assert( remainingBytes >= sizeof(struct ieee80211_qosframe) );
+		struct ieee80211_qosframe* dot80211 = (struct ieee80211_qosframe*) packetIterator;
 		packetIterator += sizeof(*dot80211);
 		remainingBytes -= sizeof(*dot80211);
 	
 		// ADDBA packet flags
-		dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_DATA;
+		dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_QOS;
 		//printf("%i\n", *dot80211->i_fc);
-		dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
+		dot80211->i_fc[1] = IEEE80211_FC1_DIR_FROMDS;
 		//printf("%i\n", *dot80211->i_fc);
 		//Add by CHdezFdez as an example
-		dot80211->i_dur[0] = 0x3A;
-		dot80211->i_dur[1] = 0x01;
+		dot80211->i_dur[0] = 0x00;
+		dot80211->i_dur[1] = 0x00;
 		// Destination 
 		memcpy( dot80211->i_addr1, destinationMAC, IEEE80211_ADDR_LEN );
 		// Source = our own mac address
@@ -988,6 +1096,9 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
 			seqnumber[1]++;
 		}
 
+		dot80211->i_qos[0] = 0x00;
+		dot80211->i_qos[1] = 0x00;
+
 		assert(remainingBytes >= sizeof(struct llc) );
 		struct llc* llchdr = (struct llc*) packetIterator;
 		packetIterator += sizeof(*llchdr);
@@ -1004,7 +1115,7 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
 
 		snaphdr->OID1 = 0x0000;
 		snaphdr->OID2 = 0x00;
-		snaphdr->protocolID = 0x0008;
+		snaphdr->protocolID = htons(0x0800);
 
 		char *pseudogram;
 
@@ -1025,7 +1136,7 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
     	//zero out the packet buffer
 	    memset (data, '0', numCharDatagram);
     	//Data part
-    	strcpy(data , "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+    	//strcpy(data , "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
 		packetIterator += numCharDatagram*sizeof(char);
 		remainingBytes -= numCharDatagram*sizeof(char);
      
@@ -1034,8 +1145,8 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
 
     	sin.sin_family = AF_INET;
 	    sin.sin_port = htons(8080);
-    	u_int32_t source_address = ((((0x00000000 | *sourceIP<<24) | *(sourceIP+1)<<16) | *(sourceIP+2)<<8) | *(sourceIP));
-    	u_int32_t destination_address = ((((0x00000000 | *dstIP<<24) | *(dstIP+1)<<16) | *(dstIP+2)<<8) | *(dstIP));
+    	u_int32_t source_address = htonl((((0x00000000 | *sourceIP<<24) | *(sourceIP+1)<<16) | *(sourceIP+2)<<8) | *(sourceIP+3));
+    	u_int32_t destination_address = htonl((((0x00000000 | *dstIP<<24) | *(dstIP+1)<<16) | *(dstIP+2)<<8) | *(dstIP+3));
 	    sin.sin_addr.s_addr = destination_address;
      
 	    //Fill in the IP Header
@@ -1043,7 +1154,6 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
     	iph->version = 4;
 	    iph->tos = 0;
     	iph->tot_len = htons(sizeof (struct iphdr) + sizeof (struct udphdr) + strlen(data));
-    	printf("%04x\n", iph->tot_len);
 	    iph->id = htons (cont); //Id of this packet
     	cont++;
     	iph->frag_off = 0;
@@ -1053,7 +1163,7 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
 	    iph->daddr = destination_address;
      
 		//Ip checksum
-    	iph->check = csum ((unsigned short *) iph, iph->tot_len);
+    	iph->check = checksum((uint8_t*) iph, sizeof(iph));
      
 	    //UDP header
     	udph->source = htons (6666);
@@ -1067,14 +1177,14 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
 	    psh.placeholder = 0;
     	psh.protocol = IPPROTO_UDP;
     	psh.udp_length = htons(sizeof(struct udphdr) + strlen(data) );
-		     	
 		int psize = sizeof(struct pseudo_header) + sizeof(struct udphdr) + strlen(data);
     	pseudogram = malloc(psize);
 	     
     	memcpy(pseudogram , (char*) &psh , sizeof (struct pseudo_header));
     	memcpy(pseudogram + sizeof(struct pseudo_header) , udph , sizeof(struct udphdr) + strlen(data));
      
-	    udph->check = csum( (unsigned short*) pseudogram , psize);
+	    udph->check = checksum( (uint8_t*) pseudogram , psize);
+	    free(pseudogram);
 	}else {
 		for(int i = 0; i<numFrames; i++)
 		{
@@ -1083,24 +1193,31 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
 			packetIterator += sizeof(*delim);
 			remainingBytes -= sizeof(*delim);
 
-			uint16_t aux = MPDUsize & 0x0fff;
+			printf("%i\n", MPDUsize);
+			uint16_t aux = 0x4004;//MPDUsize & 0x0fff;
+			printf("%04x\n", aux);
 			delim->reservedAndLength = htons(aux);
-			delim->crc = csum( (unsigned short*) &delim->reservedAndLength , 16);
-			delim->delimiterSignature = htole16(0x4E);
+			uint8_t crc = 0xff;
+			crc8(&crc, ((delim->reservedAndLength&0xff00)>>8));
+			crc8(&crc, (delim->reservedAndLength&0x00ff));
+			delim->crc = 0x47;
+			printf("%02x\n", delim->crc);
+			delim->delimiterSignature = 0x4E;
+			printf("%02x\n", delim->delimiterSignature);
 
-			assert( remainingBytes >= sizeof(struct ieee80211_frame) );
-			struct ieee80211_frame* dot80211 = (struct ieee80211_frame*) packetIterator;
+			assert( remainingBytes >= sizeof(struct ieee80211_qosframe) );
+			struct ieee80211_qosframe* dot80211 = (struct ieee80211_qosframe*) packetIterator;
 			packetIterator += sizeof(*dot80211);
 			remainingBytes -= sizeof(*dot80211);
 	
-			// ADDBA packet flags
-			dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_DATA;
+			// Data packet flags
+			dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_QOS;
 			//printf("%i\n", *dot80211->i_fc);
-			dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
+			dot80211->i_fc[1] = IEEE80211_FC1_DIR_FROMDS;
 			//printf("%i\n", *dot80211->i_fc);
 			//Add by CHdezFdez as an example
-			dot80211->i_dur[0] = 0x3A;
-			dot80211->i_dur[1] = 0x01;
+			dot80211->i_dur[0] = 0x00;
+			dot80211->i_dur[1] = 0x00;
 			// Destination 
 			memcpy( dot80211->i_addr1, destinationMAC, IEEE80211_ADDR_LEN );
 			// Source = our own mac address
@@ -1110,7 +1227,11 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
 			// Sequence control
 			dot80211->i_seq[0] = seqnumber[0]&0xf0;
 			dot80211->i_seq[1] = seqnumber[1];
-
+			if(i==0)
+			{
+				firstSequence[0]=seqnumber[0];
+				firstSequence[1]=seqnumber[1];
+			}
 			if(seqnumber[0]<0xf0)
 			{
 				seqnumber[0] += (1<<4);
@@ -1118,6 +1239,9 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
 				seqnumber[0]=0;
 				seqnumber[1]++;
 			}
+
+			dot80211->i_qos[0] = 0x00;
+			dot80211->i_qos[1] = 0x00;
 
 			assert(remainingBytes >= sizeof(struct llc) );
 			struct llc* llchdr = (struct llc*) packetIterator;
@@ -1135,7 +1259,7 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
 
 			snaphdr->OID1 = 0x0000;
 			snaphdr->OID2 = 0x00;
-			snaphdr->protocolID = 0x0008;
+			snaphdr->protocolID = htons(0x0800);
 
 	    	char *pseudogram;
 
@@ -1156,7 +1280,7 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
     		//zero out the packet buffer
 	    	memset (data, '0', numCharDatagram);
     		//Data part
-    		strcpy(data , "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+    		//strcpy(data , "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
 			packetIterator += numCharDatagram*sizeof(char);
 			remainingBytes -= numCharDatagram*sizeof(char);
      
@@ -1165,8 +1289,8 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
 
     		sin.sin_family = AF_INET;
 	    	sin.sin_port = htons(8080);
-    		u_int32_t source_address = ((((0x00000000 | *sourceIP<<24) | *(sourceIP+1)<<16) | *(sourceIP+2)<<8) | *(sourceIP));
-    		u_int32_t destination_address = ((((0x00000000 | *dstIP<<24) | *(dstIP+1)<<16) | *(dstIP+2)<<8) | *(dstIP));
+    		u_int32_t source_address = htonl((((0x00000000 | *sourceIP<<24) | *(sourceIP+1)<<16) | *(sourceIP+2)<<8) | *(sourceIP+3));
+    		u_int32_t destination_address = htonl((((0x00000000 | *dstIP<<24) | *(dstIP+1)<<16) | *(dstIP+2)<<8) | *(dstIP+3));
 	    	sin.sin_addr.s_addr = destination_address;
      
 	    	//Fill in the IP Header
@@ -1183,7 +1307,7 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
 	    	iph->daddr = destination_address;
      
 		    //Ip checksum
-    		iph->check = csum ((unsigned short *) iph, iph->tot_len);
+    		iph->check = checksum((uint8_t*) iph, iph->tot_len);
      
 	    	//UDP header
     		udph->source = htons (6666);
@@ -1204,7 +1328,19 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
     		memcpy(pseudogram , (char*) &psh , sizeof (struct pseudo_header));
     		memcpy(pseudogram + sizeof(struct pseudo_header) , udph , sizeof(struct udphdr) + strlen(data));
      
-	    	udph->check = csum( (unsigned short*) pseudogram , psize);
+	    	udph->check = checksum( (uint8_t*) pseudogram , psize);
+	    	free(pseudogram);
+
+	    	if (zeropadding!=0)
+	    	{
+	    		assert( remainingBytes >= zeropadding);
+				char* padding = (char*) packetIterator;
+				memset(padding, 0, zeropadding);
+				packetIterator += zeropadding*sizeof(char);
+				remainingBytes -= zeropadding*sizeof(char);
+	    	}
+	    	
+
 		}
 	}
 	
@@ -1212,28 +1348,19 @@ uint8_t* constructDataPacket ( uint8_t dataRate, uint8_t channel, const struct A
 
 	assert( remainingBytes == 0 );
 	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
-	return packet;
 
 }
 
-uint8_t* constructBARequest ( uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* BALength, const uint8_t* destinationMAC)
+void constructBARequest (uint8_t* packet, uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* BALength, const uint8_t* destinationMAC)
 {
 
-	uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
+	//uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
 	// For 802.11b, either 1 or 2 Mbps is the permitted rate for broadcasts
 	// For 802.11a, 6Mbps is the permitted rate for broadcasts
-	assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 );
+	//assert( dataRateValue == 0x02 || dataRateValue == 0x04 || dataRateValue == 0x12 );
 
-	*BALength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) +
-	sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_ba_request);
-
-	uint8_t* packet = (uint8_t*) malloc( *BALength );
 	assert( packet != NULL );
-	if ( packet == NULL )
-	{
-		return NULL;
-	}
-	
+		
 	size_t remainingBytes = *BALength;
 	
 	// Add the radiotap header
@@ -1253,66 +1380,43 @@ uint8_t* constructBARequest ( uint8_t dataRate, uint8_t channel, const struct Ac
 	remainingBytes -= sizeof(dataRate);
 	
 	// Build the 802.11 header
-	assert( remainingBytes >= sizeof(struct ieee80211_frame) );
-	struct ieee80211_frame* dot80211 = (struct ieee80211_frame*) packetIterator;
+	assert( remainingBytes >= sizeof(struct ieee80211_baframe) );
+	struct ieee80211_baframe* dot80211 = (struct ieee80211_baframe*) packetIterator;
 	packetIterator += sizeof(*dot80211);
 	remainingBytes -= sizeof(*dot80211);
 	
-	// ADDBA packet flags
+	// BARequest packet flags
 	dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_CTL | IEEE80211_FC0_SUBTYPE_BAR;
 	//printf("%i\n", *dot80211->i_fc);
 	dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
 	//printf("%i\n", *dot80211->i_fc);
 	//Add by CHdezFdez as an example
-	dot80211->i_dur[0] = 0x3A;
-	dot80211->i_dur[1] = 0x01;
+	dot80211->i_dur[0] = 0x00;
+	dot80211->i_dur[1] = 0x00;
 	// Destination 
 	memcpy( dot80211->i_addr1, destinationMAC, IEEE80211_ADDR_LEN );
 	// Source = our own mac address
 	memcpy( dot80211->i_addr2, apDescription->macAddress, IEEE80211_ADDR_LEN );
 	// BSS = our mac address
-	memcpy( dot80211->i_addr3, apDescription->macAddress, IEEE80211_ADDR_LEN );
-	// Sequence control
-	dot80211->i_seq[0] = seqnumber[0]&0xf0;
-	dot80211->i_seq[1] = seqnumber[1];
-
-	if(seqnumber[0]<0xf0)
-	{
-		seqnumber[0] += (1<<4);
-	}else{
-		seqnumber[0]=0;
-		seqnumber[1]++;
-	}
 	
-	// Add the addba frame
+	// Add the BARequest frame
 	assert( remainingBytes >= sizeof(struct ieee80211_ba_request) );
 	struct ieee80211_ba_request* BAR = (struct ieee80211_ba_request*) packetIterator;
 	packetIterator += sizeof(*BAR);
 	remainingBytes -= sizeof(*BAR);
 	
-	BAR->BA_control = htole16(0x0001);
-	BAR->BA_seq = htole16(((0x0000|(firstSequence[0]<<8))|firstSequence[1])&0x0FFF);
+	BAR->BA_control = htons(0x01)>>8;
+	BAR->BA_seq = (uint16_t)firstSequence[1]<<8|(firstSequence[0]&0xf0);
 
-	// Add the SSID
-	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + apDescription->ssidLength );
-	struct ieee80211_info_element* info = (struct ieee80211_info_element*) packetIterator;
-	packetIterator += sizeof(struct ieee80211_info_element) + apDescription->ssidLength;
-	remainingBytes -= sizeof(struct ieee80211_info_element) + apDescription->ssidLength;
-	
-	info->info_elemid = IEEE80211_ELEMID_SSID;
-	info->info_length = apDescription->ssidLength;
-	memcpy( info->info, apDescription->ssid, apDescription->ssidLength );
-	
 	assert( remainingBytes == 0 );
 	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
-	return packet;
 
 }
 
 
 // ADD MORE ACCESS POINTS HERE, IF YOU WANT
 static struct AccessPointDescriptor ap0 = {
-	{ 0x1c, 0x4b, 0xd6, 0xdc, 0x90, 0xb4 },
+	{ 0x60, 0xe3, 0x27, 0x1d, 0x32, 0xb7 },
 	(const uint8_t*) "ap0", 3,
 	IEEE80211B_DEFAULT_RATES, IEEE80211B_DEFAULT_RATES_LENGTH,
 };
@@ -1356,20 +1460,7 @@ int main(int argc, char *argv[])
 	u_int8_t dstMAC[6];
 	parseMACAddresses(argv[5], &dstMAC[0]);
 
-	size_t ACKLength = (size_t) sizeof(size_t);
-	uint8_t* ACKPacket = (uint8_t*) (sizeof(uint8_t*));
-	size_t authLength = (size_t) sizeof(size_t);
-	uint8_t* authPacket = (uint8_t*) (sizeof(uint8_t*));
-	size_t assoLength = (size_t) sizeof(size_t);
-	uint8_t* assoPacket = (uint8_t*) (sizeof(uint8_t*));
-	size_t addBALength = (size_t) sizeof(size_t);
-	uint8_t* ADDBAPacket = (uint8_t*) (sizeof(uint8_t*));
-	size_t dataPacketLength = (size_t) sizeof(size_t);
-	uint8_t* dataPacket = (uint8_t*) (sizeof(uint8_t*));
-	size_t BARLength = (size_t) sizeof(size_t);
-	uint8_t* BARPacket = (uint8_t*) (sizeof(uint8_t*));
-	
-	long int channel = strtol( argv[2], NULL, 10 );
+	uint8_t channel = strtol( argv[2], NULL, 10 );
 	if ( channel <= 0 || 255 <= channel )
 	{
 		printf( "The channel must be between 1 and 255.\n" );
@@ -1378,17 +1469,51 @@ int main(int argc, char *argv[])
 	}
 
 	uint8_t numFrames = atoi(argv[3]);
-
-		// The 802.11b base broadcast rate
-	const uint8_t dataRate = 0x2;
-	const char* device = argv[1];
-		
-	// Construct the beacon packets
-	size_t* beaconLengths = (size_t*) malloc( sizeof(size_t) * numAccessPoints );
-	assert( beaconLengths != NULL );
-	uint8_t** beaconPackets = (uint8_t**) malloc( sizeof(uint8_t*) * numAccessPoints );
-	assert( beaconLengths != NULL );
 	
+	const uint8_t dataRate = 108;
+	const char* device = argv[1];
+
+	// Construct the beacon packets
+	// Packet size: radiotap header + 1 byte for rate + ieee80211_frame header + beacon info + tags
+	size_t beaconLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_beacon) +
+	// SSID, rates, channel
+	sizeof(struct ieee80211_info_element)*3 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel);
+
+	size_t probeResponseLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_beacon) +
+	// SSID, rates, channel
+	sizeof(struct ieee80211_info_element)*3 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel);
+
+	//size_t ACKLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame_ack);
+	size_t authLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_authentication);
+	size_t assoLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) +
+	sizeof(struct ieee80211_association_response) +
+	// SSID, rates, channel
+	sizeof(struct ieee80211_info_element)*3 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel);
+	size_t addBALength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_addba_request) +
+	// SSID
+	sizeof(struct ieee80211_info_element) + accessPoints[0]->ssidLength;
+
+	int numCharDatagram =6;
+	int zeropadding = 0;
+
+	int MPDUsize = sizeof(struct ieee80211_frame)+sizeof(struct llc)+sizeof(struct snap)+sizeof(struct iphdr)+sizeof(struct udphdr)+numCharDatagram*sizeof(char);
+
+	if((MPDUsize%4)!=0)
+	{
+		zeropadding = (4-(MPDUsize%4));
+		MPDUsize += zeropadding;
+	}
+
+	size_t dataLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + numFrames*(sizeof(struct mpdu_delimiter) + zeropadding) +
+	sizeof(struct ieee80211_qosframe) + sizeof(struct llc) + sizeof(struct snap) + sizeof(struct iphdr) + sizeof(struct udphdr) + numCharDatagram*sizeof(char);
+
+	if (numFrames!=0)
+	{
+		dataLength += (numFrames-1)*(sizeof(struct ieee80211_qosframe) + sizeof(struct llc) + sizeof(struct snap) +
+		sizeof(struct iphdr) + sizeof(struct udphdr) + numCharDatagram*sizeof(char));
+	}
+
+	size_t BARLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_baframe) + sizeof(struct ieee80211_ba_request);
 
 	// Open the raw device
 	int rawSocket = openSocket( device );
@@ -1397,20 +1522,21 @@ int main(int argc, char *argv[])
 		fprintf( stderr, "error opening socket\n" );
 		return 1;
 	}
+	uint8_t* beaconPacket = (uint8_t*) malloc( beaconLength );
+	constructBeaconPacket(beaconPacket, dataRate, channel, accessPoints[0], &beaconLength );
+	assert( beaconPacket != NULL );
+	assert( beaconLength > 0 );
 
-	beaconPackets[0] = constructBeaconPacket( dataRate, channel, accessPoints[0], &beaconLengths[0] );
-	assert( beaconPackets[0] != NULL );
-	assert( beaconLengths[0] > 0 );
-
-	ssize_t bytes = write( rawSocket, beaconPackets[0], beaconLengths[0]);
+	ssize_t bytes = write( rawSocket, beaconPacket, beaconLength);
 	//printf("Beacon sent\n");
-	//packet_hexdump( (const uint8_t*) beaconPackets[0], beaconLengths[0] );
-	assert( bytes == (ssize_t) beaconLengths[0] );
-	if ( bytes < (ssize_t) beaconLengths[0] )
+	//packet_hexdump( (const uint8_t*) beaconPacket, beaconLength );
+	assert( bytes == (ssize_t) beaconLength );
+	if ( bytes < (ssize_t) beaconLength )
 	{
 		perror( "error sending packet" );
 		return 1;
 	}
+	free(beaconPacket);
 
 
 	
@@ -1421,10 +1547,8 @@ int main(int argc, char *argv[])
 	
 	struct timeval beaconTime = now;
 	incrementTimeval( &beaconTime, BEACON_INTERVAL );
-	
-	// This is used to change the sequence of the probe response messages
-	// In order to help clients find more of our fake access points
-	size_t lastProbeStartIndex = 0;
+
+	init_crc8();
 	
 	while ( 1 )
 	{
@@ -1496,26 +1620,13 @@ int main(int argc, char *argv[])
 					// See if it is a broadcast ssid (zero length SSID)
 					if ( info->info_length == 0 )
 					{
-						//printf( "broadcast probe request!\n");
-					
-						// Start with the next index for the next broadcast probe
-						size_t index = lastProbeStartIndex;
-						lastProbeStartIndex += 1;
-						if ( lastProbeStartIndex >= numAccessPoints )
-						{
-							lastProbeStartIndex = 0;
-						}
-					
-						// Transmit responses for all access points
-						for ( size_t i = 0; i < numAccessPoints; ++ i )
-						{
-							if ( index >= numAccessPoints )
-							{
-								index = 0;
-							}
-							transmitProbeResponse( rawSocket, beaconPackets[index], beaconLengths[index], frame->i_addr2 );
-							index += 1;
-						}
+						uint8_t* probeResponsePacket = (uint8_t*) malloc( probeResponseLength );
+						constructProbeResponse(probeResponsePacket ,dataRate, channel, accessPoints[0], &probeResponseLength, frame->i_addr2 );
+						bytes = write( rawSocket, probeResponsePacket, probeResponseLength);
+						assert(bytes == (ssize_t) probeResponseLength);
+						//printf("Probe response sent\n");
+						//packet_hexdump((const uint8_t*) probeResponsePacket, probeResponseLength);
+						free(probeResponsePacket);
 					}
 					else
 					{
@@ -1526,7 +1637,13 @@ int main(int argc, char *argv[])
 							{
 								// It does!
 								//printf( "probe for SSID '%.*s'\n", info->info_length, (char*) info->info );
-								transmitProbeResponse( rawSocket, beaconPackets[i], beaconLengths[i], frame->i_addr2 );
+								uint8_t* probeResponsePacket = (uint8_t*) malloc( probeResponseLength );
+								constructProbeResponse(probeResponsePacket ,dataRate, channel, accessPoints[i], &probeResponseLength, frame->i_addr2 );
+								bytes = write( rawSocket, probeResponsePacket, probeResponseLength);
+								assert(bytes == (ssize_t) probeResponseLength);
+								//printf("Probe response sent\n");
+								//packet_hexdump((const uint8_t*) probeResponsePacket, probeResponseLength);
+								free(probeResponsePacket);
 								break;
 							}
 						}
@@ -1541,17 +1658,22 @@ int main(int argc, char *argv[])
 
 					if(authFrame->seq == IEEE80211_AUTH_OPEN_REQUEST)
 					{
-						ACKPacket=constructACKPacket(dataRate, channel, accessPoints[0], &ACKLength, frame->i_addr2);
+						/*uint8_t* ACKpacket = (uint8_t*) malloc( ACKLength );
+						constructACKPacket(ACKPacket, dataRate, channel, accessPoints[0], &ACKLength, frame->i_addr2);
 						ssize_t bytes = write( rawSocket, ACKPacket, ACKLength );
 						assert( bytes == (ssize_t) ACKLength );
 						//printf("ACK sent\n");
 						//packet_hexdump( (const uint8_t*) ACKPacket, ACKLength );
-
-						authPacket = constructAuthResponse(dataRate, channel, accessPoints[0], &authLength, frame->i_addr2 );
+						free(ACKPacket);*/
+						
+						
+						uint8_t* authPacket = (uint8_t*) malloc( authLength );
+						constructAuthResponse(authPacket ,dataRate, channel, accessPoints[0], &authLength, frame->i_addr2 );
 						bytes = write( rawSocket, authPacket, authLength);
 						assert(bytes == (ssize_t) authLength);
 						//printf("Authentication response sent\n");
 						//packet_hexdump((const uint8_t*) authPacket, authLength);
+						free(authPacket);
 					}
 				
 
@@ -1559,31 +1681,40 @@ int main(int argc, char *argv[])
 				else if( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
 					(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_ASSOC_REQ ) // We received an Association Request
 				{
-					ACKPacket = constructACKPacket(dataRate, channel, accessPoints[0], &ACKLength, frame->i_addr2);
+					/*uint8_t* ACKpacket = (uint8_t*) malloc( ACKLength );
+					constructACKPacket(ACKPacket, dataRate, channel, accessPoints[0], &ACKLength, frame->i_addr2);
 					ssize_t bytes = write(rawSocket,ACKPacket,ACKLength);
 					assert(bytes == (ssize_t) ACKLength);
 					//printf("ACK sent\n");
 					//packet_hexdump( (const uint8_t*) ACKPacket, ACKLength);
+					free(ACKPacket);*/
 
-					assoPacket = constructAssoResponse(dataRate, channel, accessPoints[0], &assoLength, frame->i_addr2);
+
+					uint8_t* assoPacket = (uint8_t*) malloc( assoLength );
+					constructAssoResponse(assoPacket, dataRate, channel, accessPoints[0], &assoLength, frame->i_addr2);
 					bytes = write(rawSocket, assoPacket, assoLength);
 					assert(bytes== (ssize_t) assoLength);
 					//printf("Association Response\n");
 					//packet_hexdump( (const uint8_t*) assoPacket, assoLength);
+					free(assoPacket);
 
 					if(numFrames!=0)
 					{
-						ADDBAPacket = constructADDBARequest(dataRate, channel, accessPoints[0], &addBALength, frame->i_addr2);
+						uint8_t* ADDBAPacket = (uint8_t*) malloc( addBALength );
+						constructADDBARequest(ADDBAPacket, dataRate, channel, accessPoints[0], &addBALength, frame->i_addr2);
 						bytes = write(rawSocket, ADDBAPacket, addBALength);
 						assert(bytes == (ssize_t) addBALength);
 						//printf("ADDBA Request sent\n");
 						//packet_hexdump( (const uint8_t*) ADDBAPacket, addBALength);
+						free(ADDBAPacket);
 					}else {
-							dataPacket = constructDataPacket(dataRate, channel, accessPoints[0], &dataPacketLength, sourceIP, dstIP ,frame->i_addr2, numFrames);
-							bytes = write(rawSocket, dataPacket, dataPacketLength);
-							assert(bytes== (ssize_t) dataPacketLength);
+							uint8_t* dataPacket = (uint8_t*) malloc( dataLength );
+							constructDataPacket(dataPacket, dataRate, channel, accessPoints[0], &dataLength, sourceIP, dstIP ,frame->i_addr2, numFrames);
+							bytes = write(rawSocket, dataPacket, dataLength);
+							assert(bytes== (ssize_t) dataLength);
 							//printf("Data Packet sent\n");
-							//packet_hexdump( (const uint8_t*) dataPacket, dataPacketLength);
+							//packet_hexdump( (const uint8_t*) dataPacket, dataLength);
+							free(dataPacket);
 					}
 					
 				}
@@ -1598,19 +1729,29 @@ int main(int argc, char *argv[])
 					{
 						if(addbaResponseFrame->status == 0) // I check the status to know if the receiver can send Block Ack
 						{ 
+							/*uint8_t* ACKpacket = (uint8_t*) malloc( ACKLength );
 							ACKPacket=constructACKPacket(dataRate, channel, accessPoints[0], &ACKLength, frame->i_addr2);
 							ssize_t bytes = write( rawSocket, ACKPacket, ACKLength );
 							assert( bytes == (ssize_t) ACKLength );
 							//printf("ACK sent\n");
 							//packet_hexdump( (const uint8_t*) ACKPacket, ACKLength );
+							free(ACKPacket);*/
 
-							dataPacket = constructDataPacket(dataRate, channel, accessPoints[0], &dataPacketLength, sourceIP, dstIP ,frame->i_addr2, numFrames);
-							bytes = write(rawSocket, dataPacket, dataPacketLength);
-							assert(bytes== (ssize_t) dataPacketLength);
-							//printf("Data Packet sent\n");
-							//packet_hexdump( (const uint8_t*) dataPacket, dataPacketLength);
+							uint8_t* dataPacket = (uint8_t*) malloc( dataLength );
+							constructDataPacket(dataPacket ,dataRate, channel, accessPoints[0], &dataLength, sourceIP, dstIP ,frame->i_addr2, numFrames);
+							bytes = write(rawSocket, dataPacket, dataLength);
+							assert(bytes== (ssize_t) dataLength);
+							printf("Data Packet sent\n");
+							packet_hexdump( (const uint8_t*) dataPacket, dataLength);
+							free(dataPacket);
 
-							//BARPacket = constructBARequest(dataRate, channel, accessPoints[0], &BARLength, frame->i_addr2);		
+							uint8_t* BARPacket = (uint8_t*) malloc( BARLength );
+							constructBARequest(BARPacket, dataRate, channel, accessPoints[0], &BARLength, frame->i_addr2);
+							bytes = write( rawSocket, BARPacket, BARLength);
+							assert( bytes == (ssize_t) BARLength);
+							printf("Block ACK Request sent\n");
+							//packet_hexdump( (const uint8_t*) BARPacket, BARLength);
+							free(BARPacket);		
 						}else
 						{
 							perror("Device unable to do frame aggregation");
@@ -1635,26 +1776,26 @@ int main(int argc, char *argv[])
 		{
 			//~ printf( "beacon\n" );
 			// The timeout has expired. Send out the beacons
-			// TODO: Update the timestamp in the beacon packets
-			for ( size_t i = 0; i < numAccessPoints; ++ i )
+		
+			//Rebuild the beacon to update the timestamp
+			uint8_t* beaconPacket = (uint8_t*) malloc( beaconLength );
+			constructBeaconPacket(beaconPacket, dataRate, channel, accessPoints[0], &beaconLength );
+
+			assert( beaconPacket != NULL );
+			assert( beaconLength > 0 );
+
+			//printf("Prueba: %zu\n",beaconLength);
+			ssize_t bytes = write( rawSocket, beaconPacket, beaconLength);
+			//printf("Beacon sent\n");
+			//packet_hexdump( (const uint8_t*) beaconPacket, beaconLength );
+			assert( bytes == (ssize_t) beaconLength );
+			if ( bytes < (ssize_t) beaconLength )
 			{
-				//Rebuild the beacon to update the timestamp
-				beaconPackets[i] = constructBeaconPacket( dataRate, channel, accessPoints[i], &beaconLengths[i] );
-
-				assert( beaconPackets[i] != NULL );
-				assert( beaconLengths[i] > 0 );
-
-				//printf("Prueba: %zu\n",beaconLengths[i]);
-				ssize_t bytes = write( rawSocket, beaconPackets[i], beaconLengths[i]);
-				//printf("Beacon sent\n");
-				//packet_hexdump( (const uint8_t*) beaconPackets[i], beaconLengths[i] );
-				assert( bytes == (ssize_t) beaconLengths[i] );
-				if ( bytes < (ssize_t) beaconLengths[i] )
-				{
-					perror( "error sending packet" );
-					return 1;
-				}
+				perror( "error sending packet" );
+				return 1;
 			}
+			free(beaconPacket);
+
 			
 			// Increment the next beacon time until it is in the future
 			do {
@@ -1667,6 +1808,4 @@ int main(int argc, char *argv[])
 	}
 	
 	close( rawSocket );
-	free( beaconPackets );
-	free( beaconLengths );
 }
