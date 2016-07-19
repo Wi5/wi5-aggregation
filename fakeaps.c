@@ -159,6 +159,32 @@ struct ampdu_status
 	uint16_t flags;
 } __attribute__ ((packed));
 
+struct HTCapabilities
+{
+	uint16_t info;
+	uint8_t ampduParams;
+	uint32_t rxModulation1;
+	uint32_t rxModulation2;
+	uint16_t rxModulation3;
+	uint16_t highestDataRate;
+	uint8_t txParams;
+	uint16_t empty1;
+	uint8_t empty2;
+	uint16_t extendedCap;
+	uint32_t beanFormingCap;
+	uint8_t antennaSelectionCap;
+} __attribute__ ((packed));
+
+struct HTInfo
+{
+	uint8_t channel;
+	uint8_t subset1;
+	uint16_t subset2;
+	uint16_t subset3;
+	uint64_t rxModulation1;
+	uint64_t rxModulation2;
+} __attribute__ ((packed));
+
 int openSocket( const char device[IFNAMSIZ] )
 {
 	struct ifreq ifr;
@@ -432,14 +458,26 @@ struct AccessPointDescriptor
 };
 
 static const uint8_t IEEE80211_BROADCAST_ADDR[IEEE80211_ADDR_LEN] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
-static const uint8_t IEEE80211B_DEFAULT_RATES[] = { 
-	IEEE80211_RATE_BASIC | 2,
-	IEEE80211_RATE_BASIC | 4,
-	11,
-	22,
+static const uint8_t IEEE80211_DEFAULT_RATES[] = { 
+	0x82,
+	0x84,
+	0x8b,
+	0x0c,
+	0x12,
+	0x96,
+	0x18,
+	0x24
 };
-//~ static const size_t IEEE80211B_DEFAULT_RATES_LENGTH = sizeof(IEEE80211B_DEFAULT_RATES);
-#define IEEE80211B_DEFAULT_RATES_LENGTH sizeof(IEEE80211B_DEFAULT_RATES)
+//~ static const size_t IEEE80211_DEFAULT_RATES_LENGTH = sizeof(IEEE80211_DEFAULT_RATES);
+#define IEEE80211_DEFAULT_RATES_LENGTH sizeof(IEEE80211_DEFAULT_RATES)
+
+static const uint8_t IEEE80211_EXTENDED_RATES[] = {
+	0x30,
+	0x48,
+	0x60,
+	0x6c
+};
+#define IEEE80211_EXTENDED_RATES_LENGTH sizeof(IEEE80211_EXTENDED_RATES)
 
 struct ieee80211_beacon {
 	u_int64_t beacon_timestamp;
@@ -568,6 +606,56 @@ void constructBeaconPacket(uint8_t* packet, uint8_t dataRate, uint8_t channel, c
 	info->info_length = sizeof(channel);
 	memcpy( info->info, &channel, sizeof(channel) );
 
+	// Add the HT-Capabilities
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + sizeof(struct HTCapabilities) );
+	info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + sizeof(struct HTCapabilities);
+	remainingBytes -= sizeof(struct ieee80211_info_element) + sizeof(struct HTCapabilities);
+	
+	info->info_elemid = IEEE80211_ELEMID_HTCAPS;
+	info->info_length = sizeof(struct HTCapabilities);
+	struct HTCapabilities htcap;
+	htcap.info = htons(0x19ac);
+	htcap.ampduParams = 0x1b;
+	htcap.rxModulation1 = htonl(0xffffff00);
+	htcap.rxModulation2 = 0x00000000;
+	htcap.rxModulation3 = 0x0000;
+	htcap.highestDataRate = 0x0000;
+	htcap.txParams = 0x00;
+	htcap.empty1 = 0x0000;
+	htcap.empty2 = 0x00;
+	htcap.extendedCap = 0x0000;
+	htcap.beanFormingCap = 0x00000000;
+	htcap.antennaSelectionCap = 0x00;
+	memcpy( info->info, &htcap, sizeof(htcap) );
+
+	// Add the extended data rates
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + IEEE80211_EXTENDED_RATES_LENGTH );
+	info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + IEEE80211_EXTENDED_RATES_LENGTH;
+	remainingBytes -= sizeof(struct ieee80211_info_element) + IEEE80211_EXTENDED_RATES_LENGTH;
+	
+	info->info_elemid = IEEE80211_ELEMID_XRATES;
+	info->info_length = IEEE80211_EXTENDED_RATES_LENGTH;
+	memcpy( info->info, IEEE80211_EXTENDED_RATES, IEEE80211_EXTENDED_RATES_LENGTH );
+
+	// Add the HT-Capabilities
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + sizeof(struct HTInfo) );
+	info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + sizeof(struct HTInfo);
+	remainingBytes -= sizeof(struct ieee80211_info_element) + sizeof(struct HTInfo);
+	
+	info->info_elemid = IEEE80211_ELEMID_HTOP;
+	info->info_length = sizeof(struct HTInfo);
+	struct HTInfo htinf;
+	htinf.channel = 0x05;
+	htinf.subset1 = 0x00;
+	htinf.subset2 = htons(0x0007);
+	htinf.subset3 = 0x0000;
+	htinf.rxModulation1 = 0x000000000000000000;
+	htinf.rxModulation2 = 0x000000000000000000;
+	memcpy( info->info, &htinf, sizeof(htinf) );
+
 	assert( remainingBytes == 0 );
 	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
 
@@ -683,6 +771,56 @@ void constructProbeResponse(uint8_t* packet, uint8_t dataRate, uint8_t channel, 
 	info->info_elemid = IEEE80211_ELEMID_DSPARMS;
 	info->info_length = sizeof(channel);
 	memcpy( info->info, &channel, sizeof(channel) );
+
+		// Add the HT-Capabilities
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + sizeof(struct HTCapabilities) );
+	info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + sizeof(struct HTCapabilities);
+	remainingBytes -= sizeof(struct ieee80211_info_element) + sizeof(struct HTCapabilities);
+	
+	info->info_elemid = IEEE80211_ELEMID_HTCAPS;
+	info->info_length = sizeof(struct HTCapabilities);
+	struct HTCapabilities htcap;
+	htcap.info = htons(0x19ac);
+	htcap.ampduParams = 0x1b;
+	htcap.rxModulation1 = htonl(0xffffff00);
+	htcap.rxModulation2 = 0x00000000;
+	htcap.rxModulation3 = 0x0000;
+	htcap.highestDataRate = 0x0000;
+	htcap.txParams = 0x00;
+	htcap.empty1 = 0x0000;
+	htcap.empty2 = 0x00;
+	htcap.extendedCap = 0x0000;
+	htcap.beanFormingCap = 0x00000000;
+	htcap.antennaSelectionCap = 0x00;
+	memcpy( info->info, &htcap, sizeof(htcap) );
+
+	// Add the extended data rates
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + IEEE80211_EXTENDED_RATES_LENGTH );
+	info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + IEEE80211_EXTENDED_RATES_LENGTH;
+	remainingBytes -= sizeof(struct ieee80211_info_element) + IEEE80211_EXTENDED_RATES_LENGTH;
+	
+	info->info_elemid = IEEE80211_ELEMID_XRATES;
+	info->info_length = IEEE80211_EXTENDED_RATES_LENGTH;
+	memcpy( info->info, IEEE80211_EXTENDED_RATES, IEEE80211_EXTENDED_RATES_LENGTH );
+
+	// Add the HT-Capabilities
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + sizeof(struct HTInfo) );
+	info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + sizeof(struct HTInfo);
+	remainingBytes -= sizeof(struct ieee80211_info_element) + sizeof(struct HTInfo);
+	
+	info->info_elemid = IEEE80211_ELEMID_HTOP;
+	info->info_length = sizeof(struct HTInfo);
+	struct HTInfo htinf;
+	htinf.channel = 0x05;
+	htinf.subset1 = 0x00;
+	htinf.subset2 = htons(0x0007);
+	htinf.subset3 = 0x0000;
+	htinf.rxModulation1 = 0x000000000000000000;
+	htinf.rxModulation2 = 0x000000000000000000;
+	memcpy( info->info, &htinf, sizeof(htinf) );
 
 	assert( remainingBytes == 0 );
 	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
@@ -914,6 +1052,56 @@ void constructAssoResponse (uint8_t* packet, uint8_t dataRate, uint8_t channel, 
 	info->info_elemid = IEEE80211_ELEMID_DSPARMS;
 	info->info_length = sizeof(channel);
 	memcpy( info->info, &channel, sizeof(channel) );
+
+		// Add the HT-Capabilities
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + sizeof(struct HTCapabilities) );
+	info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + sizeof(struct HTCapabilities);
+	remainingBytes -= sizeof(struct ieee80211_info_element) + sizeof(struct HTCapabilities);
+	
+	info->info_elemid = IEEE80211_ELEMID_HTCAPS;
+	info->info_length = sizeof(struct HTCapabilities);
+	struct HTCapabilities htcap;
+	htcap.info = htons(0x19ac);
+	htcap.ampduParams = 0x1b;
+	htcap.rxModulation1 = htonl(0xffffff00);
+	htcap.rxModulation2 = 0x00000000;
+	htcap.rxModulation3 = 0x0000;
+	htcap.highestDataRate = 0x0000;
+	htcap.txParams = 0x00;
+	htcap.empty1 = 0x0000;
+	htcap.empty2 = 0x00;
+	htcap.extendedCap = 0x0000;
+	htcap.beanFormingCap = 0x00000000;
+	htcap.antennaSelectionCap = 0x00;
+	memcpy( info->info, &htcap, sizeof(htcap) );
+
+	// Add the extended data rates
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + IEEE80211_EXTENDED_RATES_LENGTH );
+	info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + IEEE80211_EXTENDED_RATES_LENGTH;
+	remainingBytes -= sizeof(struct ieee80211_info_element) + IEEE80211_EXTENDED_RATES_LENGTH;
+	
+	info->info_elemid = IEEE80211_ELEMID_XRATES;
+	info->info_length = IEEE80211_EXTENDED_RATES_LENGTH;
+	memcpy( info->info, IEEE80211_EXTENDED_RATES, IEEE80211_EXTENDED_RATES_LENGTH );
+
+	// Add the HT-Capabilities
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + sizeof(struct HTInfo) );
+	info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + sizeof(struct HTInfo);
+	remainingBytes -= sizeof(struct ieee80211_info_element) + sizeof(struct HTInfo);
+	
+	info->info_elemid = IEEE80211_ELEMID_HTOP;
+	info->info_length = sizeof(struct HTInfo);
+	struct HTInfo htinf;
+	htinf.channel = 0x05;
+	htinf.subset1 = 0x00;
+	htinf.subset2 = htons(0x0007);
+	htinf.subset3 = 0x0000;
+	htinf.rxModulation1 = 0x000000000000000000;
+	htinf.rxModulation2 = 0x000000000000000000;
+	memcpy( info->info, &htinf, sizeof(htinf) );
 
 	assert( remainingBytes == 0 );
 	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
@@ -1418,7 +1606,7 @@ void constructBARequest (uint8_t* packet, uint8_t dataRate, uint8_t channel, con
 static struct AccessPointDescriptor ap0 = {
 	{ 0x60, 0xe3, 0x27, 0x1d, 0x32, 0xb7 },
 	(const uint8_t*) "ap0", 3,
-	IEEE80211B_DEFAULT_RATES, IEEE80211B_DEFAULT_RATES_LENGTH,
+	IEEE80211_DEFAULT_RATES, IEEE80211_DEFAULT_RATES_LENGTH,
 };
 
 static const struct AccessPointDescriptor* accessPoints[] = {
@@ -1477,18 +1665,20 @@ int main(int argc, char *argv[])
 	// Packet size: radiotap header + 1 byte for rate + ieee80211_frame header + beacon info + tags
 	size_t beaconLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_beacon) +
 	// SSID, rates, channel
-	sizeof(struct ieee80211_info_element)*3 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel);
+	sizeof(struct ieee80211_info_element)*6 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel) + sizeof(struct HTCapabilities) +
+	IEEE80211_EXTENDED_RATES_LENGTH + sizeof(struct HTInfo);
 
 	size_t probeResponseLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_beacon) +
 	// SSID, rates, channel
-	sizeof(struct ieee80211_info_element)*3 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel);
+	sizeof(struct ieee80211_info_element)*6 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel) + sizeof(struct HTCapabilities) +
+	IEEE80211_EXTENDED_RATES_LENGTH + sizeof(struct HTInfo);
 
 	//size_t ACKLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame_ack);
 	size_t authLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_authentication);
-	size_t assoLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) +
-	sizeof(struct ieee80211_association_response) +
+	size_t assoLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_association_response) +
 	// SSID, rates, channel
-	sizeof(struct ieee80211_info_element)*3 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel);
+	sizeof(struct ieee80211_info_element)*6 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel)  + sizeof(struct HTCapabilities) +
+	IEEE80211_EXTENDED_RATES_LENGTH + sizeof(struct HTInfo);
 	size_t addBALength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_addba_request) +
 	// SSID
 	sizeof(struct ieee80211_info_element) + accessPoints[0]->ssidLength;
@@ -1496,7 +1686,7 @@ int main(int argc, char *argv[])
 	int numCharDatagram =6;
 	int zeropadding = 0;
 
-	int MPDUsize = sizeof(struct ieee80211_frame)+sizeof(struct llc)+sizeof(struct snap)+sizeof(struct iphdr)+sizeof(struct udphdr)+numCharDatagram*sizeof(char);
+	int MPDUsize = sizeof(struct ieee80211_qosframe)+sizeof(struct llc)+sizeof(struct snap)+sizeof(struct iphdr)+sizeof(struct udphdr)+numCharDatagram*sizeof(char);
 
 	if((MPDUsize%4)!=0)
 	{
@@ -1512,6 +1702,9 @@ int main(int argc, char *argv[])
 		dataLength += (numFrames-1)*(sizeof(struct ieee80211_qosframe) + sizeof(struct llc) + sizeof(struct snap) +
 		sizeof(struct iphdr) + sizeof(struct udphdr) + numCharDatagram*sizeof(char));
 	}
+
+	size_t dataLengthWithoutAggr = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_qosframe) +
+	sizeof(struct llc) + sizeof(struct snap) + sizeof(struct iphdr) + sizeof(struct udphdr) + numCharDatagram*sizeof(char);
 
 	size_t BARLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_baframe) + sizeof(struct ieee80211_ba_request);
 
@@ -1707,15 +1900,21 @@ int main(int argc, char *argv[])
 						//printf("ADDBA Request sent\n");
 						//packet_hexdump( (const uint8_t*) ADDBAPacket, addBALength);
 						free(ADDBAPacket);
-					}else {
-							uint8_t* dataPacket = (uint8_t*) malloc( dataLength );
-							constructDataPacket(dataPacket, dataRate, channel, accessPoints[0], &dataLength, sourceIP, dstIP ,frame->i_addr2, numFrames);
-							bytes = write(rawSocket, dataPacket, dataLength);
-							assert(bytes== (ssize_t) dataLength);
-							//printf("Data Packet sent\n");
-							//packet_hexdump( (const uint8_t*) dataPacket, dataLength);
-							free(dataPacket);
 					}
+						
+										
+					for(int i=0; i<4;i++)
+					{
+						uint8_t* dataPacket = (uint8_t*) malloc( dataLengthWithoutAggr );
+						constructDataPacket(dataPacket, dataRate, channel, accessPoints[0], &dataLengthWithoutAggr, sourceIP, dstIP ,frame->i_addr2, 0);
+						bytes = write(rawSocket, dataPacket, dataLengthWithoutAggr);
+						assert(bytes== (ssize_t) dataLengthWithoutAggr);
+						//printf("Data Packet sent\n");
+						//packet_hexdump( (const uint8_t*) dataPacket, dataLengthWithoutAggr);
+						free(dataPacket);
+					}
+							
+					
 					
 				}
 				else if( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
@@ -1736,14 +1935,16 @@ int main(int argc, char *argv[])
 							//printf("ACK sent\n");
 							//packet_hexdump( (const uint8_t*) ACKPacket, ACKLength );
 							free(ACKPacket);*/
-
-							uint8_t* dataPacket = (uint8_t*) malloc( dataLength );
-							constructDataPacket(dataPacket ,dataRate, channel, accessPoints[0], &dataLength, sourceIP, dstIP ,frame->i_addr2, numFrames);
-							bytes = write(rawSocket, dataPacket, dataLength);
-							assert(bytes== (ssize_t) dataLength);
-							printf("Data Packet sent\n");
-							packet_hexdump( (const uint8_t*) dataPacket, dataLength);
-							free(dataPacket);
+							for(int i=0; i<4;i++)
+							{
+								uint8_t* dataPacket = (uint8_t*) malloc( dataLength );
+								constructDataPacket(dataPacket ,dataRate, channel, accessPoints[0], &dataLength, sourceIP, dstIP ,frame->i_addr2, numFrames);
+								bytes = write(rawSocket, dataPacket, dataLength);
+								assert(bytes== (ssize_t) dataLength);
+								//printf("Data Packet sent\n");
+								//packet_hexdump( (const uint8_t*) dataPacket, dataLength);
+								free(dataPacket);
+							}							
 
 							uint8_t* BARPacket = (uint8_t*) malloc( BARLength );
 							constructBARequest(BARPacket, dataRate, channel, accessPoints[0], &BARLength, frame->i_addr2);
