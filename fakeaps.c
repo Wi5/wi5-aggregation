@@ -185,6 +185,29 @@ struct HTInfo
 	uint64_t rxModulation2;
 } __attribute__ ((packed));
 
+struct vendor
+{
+	uint16_t oid1;
+	uint8_t oid2;
+	uint8_t type;
+	uint8_t subtype;
+	uint8_t version;
+	uint8_t qosInfo;
+	uint8_t reserved;
+	uint8_t ACI0;
+	uint8_t ECW0;
+	uint16_t TxLim0;
+	uint8_t ACI1;
+	uint8_t ECW1;
+	uint16_t TxLim1;
+	uint8_t ACI2;
+	uint8_t ECW2;
+	uint16_t TxLim2;
+	uint8_t ACI3;
+	uint8_t ECW3;
+	uint16_t TxLim3;
+} __attribute__ ((packed));
+
 int openSocket( const char device[IFNAMSIZ] )
 {
 	struct ifreq ifr;
@@ -615,7 +638,7 @@ void constructBeaconPacket(uint8_t* packet, uint8_t dataRate, uint8_t channel, c
 	info->info_elemid = IEEE80211_ELEMID_HTCAPS;
 	info->info_length = sizeof(struct HTCapabilities);
 	struct HTCapabilities htcap;
-	htcap.info = htons(0x19ac);
+	htcap.info = htons(0xac19);
 	htcap.ampduParams = 0x1b;
 	htcap.rxModulation1 = htonl(0xffffff00);
 	htcap.rxModulation2 = 0x00000000;
@@ -650,11 +673,41 @@ void constructBeaconPacket(uint8_t* packet, uint8_t dataRate, uint8_t channel, c
 	struct HTInfo htinf;
 	htinf.channel = 0x05;
 	htinf.subset1 = 0x00;
-	htinf.subset2 = htons(0x0007);
+	htinf.subset2 = htons(0x0700);
 	htinf.subset3 = 0x0000;
 	htinf.rxModulation1 = 0x000000000000000000;
 	htinf.rxModulation2 = 0x000000000000000000;
 	memcpy( info->info, &htinf, sizeof(htinf) );
+
+	// Add the Microsoft: WMM/WME
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + sizeof(struct vendor) );
+	info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + sizeof(struct vendor);
+	remainingBytes -= sizeof(struct ieee80211_info_element) + sizeof(struct vendor);
+
+	info->info_elemid = IEEE80211_ELEMID_VENDOR;
+	info->info_length = sizeof(struct vendor);
+	struct vendor WMM;
+	WMM.oid1 = htons(0x0050);
+	WMM.oid2 = 0xf2;
+	WMM.type = 0x02;
+	WMM.subtype = 0x01;
+	WMM.version = 0x01;
+	WMM.qosInfo = 0x80;
+	WMM.reserved = 0x00;
+	WMM.ACI0 = 0x03;
+	WMM.ECW0 = 0xa4;
+	WMM.TxLim0 = 0x0000;
+	WMM.ACI1 = 0x27;
+	WMM.ECW1 = 0xa4;
+	WMM.TxLim1 = 0x0000;
+	WMM.ACI2 = 0x42;
+	WMM.ECW2 = 0x43;
+	WMM.TxLim2 = htons(0x005e);
+	WMM.ACI3 = 0x62;
+	WMM.ECW3 = 0x32;
+	WMM.TxLim3 = htons(0x002f);
+	memcpy( info->info, &WMM, sizeof(WMM) ); 
 
 	assert( remainingBytes == 0 );
 	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
@@ -772,7 +825,7 @@ void constructProbeResponse(uint8_t* packet, uint8_t dataRate, uint8_t channel, 
 	info->info_length = sizeof(channel);
 	memcpy( info->info, &channel, sizeof(channel) );
 
-		// Add the HT-Capabilities
+	// Add the HT-Capabilities
 	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + sizeof(struct HTCapabilities) );
 	info = (struct ieee80211_info_element*) packetIterator;
 	packetIterator += sizeof(struct ieee80211_info_element) + sizeof(struct HTCapabilities);
@@ -781,7 +834,7 @@ void constructProbeResponse(uint8_t* packet, uint8_t dataRate, uint8_t channel, 
 	info->info_elemid = IEEE80211_ELEMID_HTCAPS;
 	info->info_length = sizeof(struct HTCapabilities);
 	struct HTCapabilities htcap;
-	htcap.info = htons(0x19ac);
+	htcap.info = htons(0xac19);
 	htcap.ampduParams = 0x1b;
 	htcap.rxModulation1 = htonl(0xffffff00);
 	htcap.rxModulation2 = 0x00000000;
@@ -816,12 +869,38 @@ void constructProbeResponse(uint8_t* packet, uint8_t dataRate, uint8_t channel, 
 	struct HTInfo htinf;
 	htinf.channel = 0x05;
 	htinf.subset1 = 0x00;
-	htinf.subset2 = htons(0x0007);
+	htinf.subset2 = htons(0x0700);
 	htinf.subset3 = 0x0000;
 	htinf.rxModulation1 = 0x000000000000000000;
 	htinf.rxModulation2 = 0x000000000000000000;
 	memcpy( info->info, &htinf, sizeof(htinf) );
 
+	// Add the Microsoft: WMM/WME
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + sizeof(struct vendor) );
+	info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + sizeof(struct vendor);
+	remainingBytes -= sizeof(struct ieee80211_info_element) + sizeof(struct vendor);
+	struct vendor WMM;
+	WMM.oid1 = htons(0x0050);
+	WMM.oid2 = 0xf2;
+	WMM.type = 0x02;
+	WMM.subtype = 0x01;
+	WMM.version = 0x01;
+	WMM.qosInfo = 0x80;
+	WMM.reserved = 0x00;
+	WMM.ACI0 = 0x03;
+	WMM.ECW0 = 0xa4;
+	WMM.TxLim0 = 0x0000;
+	WMM.ACI1 = 0x27;
+	WMM.ECW1 = 0xa4;
+	WMM.TxLim1 = 0x0000;
+	WMM.ACI2 = 0x42;
+	WMM.ECW2 = 0x43;
+	WMM.TxLim2 = htons(0x005e);
+	WMM.ACI3 = 0x62;
+	WMM.ECW3 = 0x32;
+	WMM.TxLim3 = htons(0x002f);
+	memcpy( info->info, &WMM, sizeof(WMM) ); 
 	assert( remainingBytes == 0 );
 	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
 }
@@ -1053,7 +1132,7 @@ void constructAssoResponse (uint8_t* packet, uint8_t dataRate, uint8_t channel, 
 	info->info_length = sizeof(channel);
 	memcpy( info->info, &channel, sizeof(channel) );
 
-		// Add the HT-Capabilities
+	// Add the HT-Capabilities
 	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + sizeof(struct HTCapabilities) );
 	info = (struct ieee80211_info_element*) packetIterator;
 	packetIterator += sizeof(struct ieee80211_info_element) + sizeof(struct HTCapabilities);
@@ -1062,7 +1141,7 @@ void constructAssoResponse (uint8_t* packet, uint8_t dataRate, uint8_t channel, 
 	info->info_elemid = IEEE80211_ELEMID_HTCAPS;
 	info->info_length = sizeof(struct HTCapabilities);
 	struct HTCapabilities htcap;
-	htcap.info = htons(0x19ac);
+	htcap.info = htons(0xac19);
 	htcap.ampduParams = 0x1b;
 	htcap.rxModulation1 = htonl(0xffffff00);
 	htcap.rxModulation2 = 0x00000000;
@@ -1097,11 +1176,38 @@ void constructAssoResponse (uint8_t* packet, uint8_t dataRate, uint8_t channel, 
 	struct HTInfo htinf;
 	htinf.channel = 0x05;
 	htinf.subset1 = 0x00;
-	htinf.subset2 = htons(0x0007);
+	htinf.subset2 = htons(0x0700);
 	htinf.subset3 = 0x0000;
 	htinf.rxModulation1 = 0x000000000000000000;
 	htinf.rxModulation2 = 0x000000000000000000;
 	memcpy( info->info, &htinf, sizeof(htinf) );
+
+	// Add the Microsoft: WMM/WME
+	assert( remainingBytes >= sizeof(struct ieee80211_info_element) + sizeof(struct vendor) );
+	info = (struct ieee80211_info_element*) packetIterator;
+	packetIterator += sizeof(struct ieee80211_info_element) + sizeof(struct vendor);
+	remainingBytes -= sizeof(struct ieee80211_info_element) + sizeof(struct vendor);
+	struct vendor WMM;
+	WMM.oid1 = htons(0x0050);
+	WMM.oid2 = 0xf2;
+	WMM.type = 0x02;
+	WMM.subtype = 0x01;
+	WMM.version = 0x01;
+	WMM.qosInfo = 0x80;
+	WMM.reserved = 0x00;
+	WMM.ACI0 = 0x03;
+	WMM.ECW0 = 0xa4;
+	WMM.TxLim0 = 0x0000;
+	WMM.ACI1 = 0x27;
+	WMM.ECW1 = 0xa4;
+	WMM.TxLim1 = 0x0000;
+	WMM.ACI2 = 0x42;
+	WMM.ECW2 = 0x43;
+	WMM.TxLim2 = htons(0x005e);
+	WMM.ACI3 = 0x62;
+	WMM.ECW3 = 0x32;
+	WMM.TxLim3 = htons(0x002f);
+	memcpy( info->info, &WMM, sizeof(WMM) ); 
 
 	assert( remainingBytes == 0 );
 	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
@@ -1232,14 +1338,25 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 	radiotap->it_len = sizeof(*radiotap) + sizeof(dataRate);
 	radiotap->it_present = (1 << IEEE80211_RADIOTAP_RATE);
 	
+	if(numFrames != 0){
+
+		radiotap->it_len += (16-(sizeof(dataRate))) + sizeof(struct ampdu_status);
+		radiotap->it_present = (0x00000000 |(1 << IEEE80211_RADIOTAP_RATE)) | (1 << 20);
+	}
+
 	// Add the data rate for the radiotap header
 	assert( remainingBytes >= sizeof(dataRate) );
 	*packetIterator = (dataRate & IEEE80211_RATE_VAL);
 	packetIterator ++;
 	remainingBytes -= sizeof(dataRate);
 
-	/*if(numFrames!=0) {
-		assert( remainingBytes >= sizeof(struct ampdu_status) );
+	if(numFrames!=0) {
+		
+		assert ( remainingBytes >= (16-(sizeof(dataRate)%16)));
+		packetIterator += (16-(sizeof(dataRate)%16));
+		remainingBytes -= (16-(sizeof(dataRate)%16));
+
+		assert ( remainingBytes >= sizeof(struct ampdu_status) );
 		struct ampdu_status* status = (struct ampdu_status*) packetIterator;
 		packetIterator += sizeof(*status);
 		remainingBytes -= sizeof(*status);
@@ -1247,9 +1364,8 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 		status->reference = mpduseq;
 		mpduseq ++;
 		status->flags = 0x0000;
-	}*/
-	
-	
+	}
+
 	if(numFrames==0)
 	{
 		// Build the 802.11 header
@@ -1356,7 +1472,7 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 	    //UDP header
     	udph->source = htons (6666);
 	    udph->dest = htons (8622);
-    	udph->len = htons(sizeof(struct udphdr) + strlen(data)); //tcp header size
+    	udph->len = htons(sizeof(struct udphdr) + strlen(data)); //udp header size
     	udph->check = 0; //leave checksum 0 now, filled later by pseudo header
 	     
 		//Now the UDP checksum using the pseudo header
@@ -1376,13 +1492,14 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 	}else {
 		for(int i = 0; i<numFrames; i++)
 		{
+
 			assert( remainingBytes >= sizeof(struct mpdu_delimiter));
 			struct mpdu_delimiter* delim = (struct mpdu_delimiter*) packetIterator;
 			packetIterator += sizeof(*delim);
 			remainingBytes -= sizeof(*delim);
 
 			printf("%i\n", MPDUsize);
-			uint16_t aux = 0x4004;//MPDUsize & 0x0fff;
+			uint16_t aux = 0x4004;//MPDUsize/8 & 0x0fff;
 			printf("%04x\n", aux);
 			delim->reservedAndLength = htons(aux);
 			uint8_t crc = 0xff;
@@ -1665,20 +1782,20 @@ int main(int argc, char *argv[])
 	// Packet size: radiotap header + 1 byte for rate + ieee80211_frame header + beacon info + tags
 	size_t beaconLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_beacon) +
 	// SSID, rates, channel
-	sizeof(struct ieee80211_info_element)*6 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel) + sizeof(struct HTCapabilities) +
-	IEEE80211_EXTENDED_RATES_LENGTH + sizeof(struct HTInfo);
+	sizeof(struct ieee80211_info_element)*7 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel) + sizeof(struct HTCapabilities) +
+	IEEE80211_EXTENDED_RATES_LENGTH + sizeof(struct HTInfo) + sizeof(struct vendor);
 
 	size_t probeResponseLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_beacon) +
 	// SSID, rates, channel
-	sizeof(struct ieee80211_info_element)*6 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel) + sizeof(struct HTCapabilities) +
-	IEEE80211_EXTENDED_RATES_LENGTH + sizeof(struct HTInfo);
+	sizeof(struct ieee80211_info_element)*7 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel) + sizeof(struct HTCapabilities) +
+	IEEE80211_EXTENDED_RATES_LENGTH + sizeof(struct HTInfo) + sizeof(struct vendor);
 
 	//size_t ACKLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame_ack);
 	size_t authLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_authentication);
 	size_t assoLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_association_response) +
 	// SSID, rates, channel
-	sizeof(struct ieee80211_info_element)*6 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel)  + sizeof(struct HTCapabilities) +
-	IEEE80211_EXTENDED_RATES_LENGTH + sizeof(struct HTInfo);
+	sizeof(struct ieee80211_info_element)*7 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel)  + sizeof(struct HTCapabilities) +
+	IEEE80211_EXTENDED_RATES_LENGTH + sizeof(struct HTInfo) + sizeof(struct vendor);
 	size_t addBALength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_addba_request) +
 	// SSID
 	sizeof(struct ieee80211_info_element) + accessPoints[0]->ssidLength;
@@ -1699,8 +1816,8 @@ int main(int argc, char *argv[])
 
 	if (numFrames!=0)
 	{
-		dataLength += (numFrames-1)*(sizeof(struct ieee80211_qosframe) + sizeof(struct llc) + sizeof(struct snap) +
-		sizeof(struct iphdr) + sizeof(struct udphdr) + numCharDatagram*sizeof(char));
+		dataLength += (16-(sizeof(dataRate)%16)) + sizeof(struct ampdu_status) + (numFrames-1)*(sizeof(struct ieee80211_qosframe) + sizeof(struct llc) +
+		sizeof(struct snap) + sizeof(struct iphdr) + sizeof(struct udphdr) + numCharDatagram*sizeof(char));
 	}
 
 	size_t dataLengthWithoutAggr = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_qosframe) +
@@ -1721,8 +1838,8 @@ int main(int argc, char *argv[])
 	assert( beaconLength > 0 );
 
 	ssize_t bytes = write( rawSocket, beaconPacket, beaconLength);
-	//printf("Beacon sent\n");
-	//packet_hexdump( (const uint8_t*) beaconPacket, beaconLength );
+	printf("Beacon sent\n");
+	packet_hexdump( (const uint8_t*) beaconPacket, beaconLength );
 	assert( bytes == (ssize_t) beaconLength );
 	if ( bytes < (ssize_t) beaconLength )
 	{
@@ -1777,189 +1894,186 @@ int main(int argc, char *argv[])
 			assert( bytes >= (ssize_t) sizeof( struct ieee80211_radiotap_header ) );
 			struct ieee80211_radiotap_header* radiotap = (struct ieee80211_radiotap_header*) packetBuffer;
 			assert( radiotap->it_version == 0 );
-			assert( bytes >= radiotap->it_len );
-			uint8_t* packetIterator = packetBuffer + radiotap->it_len;
-			size_t remainingBytes = bytes - radiotap->it_len;
+			if( bytes >= radiotap->it_len ){
+				uint8_t* packetIterator = packetBuffer + radiotap->it_len;
+				size_t remainingBytes = bytes - radiotap->it_len;
 			
-			// Get the 802.11 frame:
-			// NOTE: This frame structure is larger than some packet types, so only read the initial bytes
-			struct ieee80211_frame* frame = (struct ieee80211_frame*)( packetIterator );
+				// Get the 802.11 frame:
+				// NOTE: This frame structure is larger than some packet types, so only read the initial bytes
+				struct ieee80211_frame* frame = (struct ieee80211_frame*)( packetIterator );
 
 
 			
-			if(*frame->i_addr2 == dstMAC[0] && *(frame->i_addr2+1) == dstMAC[1] && *(frame->i_addr2+2) == dstMAC[2] && *(frame->i_addr2+3) == dstMAC[3] &&
-				*(frame->i_addr2+4) == dstMAC[4] && *(frame->i_addr2+5) == dstMAC[5])
-			{
-
-				// Check to see if this is a PROBE_REQUEST
-				//assert( (frame->i_fc[0] & IEEE80211_FC0_VERSION_MASK) == IEEE80211_FC0_VERSION_0 ); //Delete to receive other kinds of packets.
-				if ( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
-				(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_PROBE_REQ )
+				if(*frame->i_addr2 == dstMAC[0] && *(frame->i_addr2+1) == dstMAC[1] && *(frame->i_addr2+2) == dstMAC[2] && *(frame->i_addr2+3) == dstMAC[3] &&
+					*(frame->i_addr2+4) == dstMAC[4] && *(frame->i_addr2+5) == dstMAC[5])
 				{
-					// To get sure that it receive a probe request
-					//printf("Probe Request received\n");
-					//packet_hexdump( (const uint8_t*) frame, remainingBytes );
 
-					// Locate the SSID
-					assert( remainingBytes >= PROBE_SSID_OFFSET );
-					packetIterator += PROBE_SSID_OFFSET;
-					remainingBytes -= PROBE_SSID_OFFSET;
-					struct ieee80211_info_element* info = (struct ieee80211_info_element*) packetIterator;
-					assert( remainingBytes >= sizeof(*info) );
-					packetIterator += sizeof(*info);
-					remainingBytes -= sizeof(*info);
-					//assert( remainingBytes >= info->info_length );
+					// Check to see if this is a PROBE_REQUEST
+					//assert( (frame->i_fc[0] & IEEE80211_FC0_VERSION_MASK) == IEEE80211_FC0_VERSION_0 ); //Delete to receive other kinds of packets.
+					if ( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
+					(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_PROBE_REQ )
+					{
+						// To get sure that it receive a probe request
+						//printf("Probe Request received\n");
+						//packet_hexdump( (const uint8_t*) frame, remainingBytes );
+
+						// Locate the SSID
+						assert( remainingBytes >= PROBE_SSID_OFFSET );
+						packetIterator += PROBE_SSID_OFFSET;
+						remainingBytes -= PROBE_SSID_OFFSET;
+						struct ieee80211_info_element* info = (struct ieee80211_info_element*) packetIterator;
+						assert( remainingBytes >= sizeof(*info) );
+						packetIterator += sizeof(*info);
+						remainingBytes -= sizeof(*info);
+						//assert( remainingBytes >= info->info_length );
 					
-					// See if it is a broadcast ssid (zero length SSID)
-					if ( info->info_length == 0 )
-					{
-						uint8_t* probeResponsePacket = (uint8_t*) malloc( probeResponseLength );
-						constructProbeResponse(probeResponsePacket ,dataRate, channel, accessPoints[0], &probeResponseLength, frame->i_addr2 );
-						bytes = write( rawSocket, probeResponsePacket, probeResponseLength);
-						assert(bytes == (ssize_t) probeResponseLength);
-						//printf("Probe response sent\n");
-						//packet_hexdump((const uint8_t*) probeResponsePacket, probeResponseLength);
-						free(probeResponsePacket);
-					}
-					else
-					{
-						// Check if the SSID matches any of ours
-						for ( size_t i = 0; i < numAccessPoints; ++ i )
+						// See if it is a broadcast ssid (zero length SSID)
+						if ( info->info_length == 0 )
 						{
-							if ( info->info_length == accessPoints[i]->ssidLength && memcmp( info->info, accessPoints[i]->ssid, info->info_length ) == 0 )
-							{
-								// It does!
-								//printf( "probe for SSID '%.*s'\n", info->info_length, (char*) info->info );
-								uint8_t* probeResponsePacket = (uint8_t*) malloc( probeResponseLength );
-								constructProbeResponse(probeResponsePacket ,dataRate, channel, accessPoints[i], &probeResponseLength, frame->i_addr2 );
-								bytes = write( rawSocket, probeResponsePacket, probeResponseLength);
-								assert(bytes == (ssize_t) probeResponseLength);
-								//printf("Probe response sent\n");
-								//packet_hexdump((const uint8_t*) probeResponsePacket, probeResponseLength);
-								free(probeResponsePacket);
-								break;
-							}
+							uint8_t* probeResponsePacket = (uint8_t*) malloc( probeResponseLength );
+							constructProbeResponse(probeResponsePacket ,dataRate, channel, accessPoints[0], &probeResponseLength, frame->i_addr2 );
+							bytes = write( rawSocket, probeResponsePacket, probeResponseLength);
+							assert(bytes == (ssize_t) probeResponseLength);
+							//printf("Probe response sent\n");
+							//packet_hexdump((const uint8_t*) probeResponsePacket, probeResponseLength);
+							free(probeResponsePacket);
 						}
-					}	
+						else
+						{
+							// Check if the SSID matches any of ours
+							for ( size_t i = 0; i < numAccessPoints; ++ i )
+							{
+								if ( info->info_length == accessPoints[i]->ssidLength && memcmp( info->info, accessPoints[i]->ssid, info->info_length ) == 0 )
+								{
+									// It does!
+									//printf( "probe for SSID '%.*s'\n", info->info_length, (char*) info->info );
+									uint8_t* probeResponsePacket = (uint8_t*) malloc( probeResponseLength );
+									constructProbeResponse(probeResponsePacket ,dataRate, channel, accessPoints[i], &probeResponseLength, frame->i_addr2 );
+									bytes = write( rawSocket, probeResponsePacket, probeResponseLength);
+									assert(bytes == (ssize_t) probeResponseLength);
+									//printf("Probe response sent\n");
+									//packet_hexdump((const uint8_t*) probeResponsePacket, probeResponseLength);
+									free(probeResponsePacket);
+									break;
+								}
+							}
+						}	
 					
-				}
-				else if( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
-					(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_AUTH ) // We received an Authentication Request
-				{
-					packetIterator += sizeof(struct ieee80211_frame);
-					struct ieee80211_authentication* authFrame = (struct ieee80211_authentication*)( packetIterator );
-
-					if(authFrame->seq == IEEE80211_AUTH_OPEN_REQUEST)
-					{
-						/*uint8_t* ACKpacket = (uint8_t*) malloc( ACKLength );
-						constructACKPacket(ACKPacket, dataRate, channel, accessPoints[0], &ACKLength, frame->i_addr2);
-						ssize_t bytes = write( rawSocket, ACKPacket, ACKLength );
-						assert( bytes == (ssize_t) ACKLength );
-						//printf("ACK sent\n");
-						//packet_hexdump( (const uint8_t*) ACKPacket, ACKLength );
-						free(ACKPacket);*/
-						
-						
-						uint8_t* authPacket = (uint8_t*) malloc( authLength );
-						constructAuthResponse(authPacket ,dataRate, channel, accessPoints[0], &authLength, frame->i_addr2 );
-						bytes = write( rawSocket, authPacket, authLength);
-						assert(bytes == (ssize_t) authLength);
-						//printf("Authentication response sent\n");
-						//packet_hexdump((const uint8_t*) authPacket, authLength);
-						free(authPacket);
 					}
-				
-
-				}
-				else if( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
-					(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_ASSOC_REQ ) // We received an Association Request
-				{
-					/*uint8_t* ACKpacket = (uint8_t*) malloc( ACKLength );
-					constructACKPacket(ACKPacket, dataRate, channel, accessPoints[0], &ACKLength, frame->i_addr2);
-					ssize_t bytes = write(rawSocket,ACKPacket,ACKLength);
-					assert(bytes == (ssize_t) ACKLength);
-					//printf("ACK sent\n");
-					//packet_hexdump( (const uint8_t*) ACKPacket, ACKLength);
-					free(ACKPacket);*/
-
-
-					uint8_t* assoPacket = (uint8_t*) malloc( assoLength );
-					constructAssoResponse(assoPacket, dataRate, channel, accessPoints[0], &assoLength, frame->i_addr2);
-					bytes = write(rawSocket, assoPacket, assoLength);
-					assert(bytes== (ssize_t) assoLength);
-					//printf("Association Response\n");
-					//packet_hexdump( (const uint8_t*) assoPacket, assoLength);
-					free(assoPacket);
-
-					if(numFrames!=0)
+					else if( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
+						(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_AUTH ) // We received an Authentication Request
 					{
-						uint8_t* ADDBAPacket = (uint8_t*) malloc( addBALength );
-						constructADDBARequest(ADDBAPacket, dataRate, channel, accessPoints[0], &addBALength, frame->i_addr2);
-						bytes = write(rawSocket, ADDBAPacket, addBALength);
-						assert(bytes == (ssize_t) addBALength);
-						//printf("ADDBA Request sent\n");
-						//packet_hexdump( (const uint8_t*) ADDBAPacket, addBALength);
-						free(ADDBAPacket);
-					}
-						
-										
-					for(int i=0; i<4;i++)
-					{
-						uint8_t* dataPacket = (uint8_t*) malloc( dataLengthWithoutAggr );
-						constructDataPacket(dataPacket, dataRate, channel, accessPoints[0], &dataLengthWithoutAggr, sourceIP, dstIP ,frame->i_addr2, 0);
-						bytes = write(rawSocket, dataPacket, dataLengthWithoutAggr);
-						assert(bytes== (ssize_t) dataLengthWithoutAggr);
-						//printf("Data Packet sent\n");
-						//packet_hexdump( (const uint8_t*) dataPacket, dataLengthWithoutAggr);
-						free(dataPacket);
-					}
-							
-					
-					
-				}
-				else if( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
-					(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_ACTION ) //We receive an Action Frame
-				{
+						packetIterator += sizeof(struct ieee80211_frame);
+						struct ieee80211_authentication* authFrame = (struct ieee80211_authentication*)( packetIterator );
 
-					packetIterator += sizeof(struct ieee80211_frame);
-					struct ieee80211_addba_response* addbaResponseFrame = (struct ieee80211_addba_response*)( packetIterator );
-
-					if(addbaResponseFrame->category == IEEE80211_CATEG_BA && addbaResponseFrame->actionCode == IEEE80211_ACTION_ADDBA_RESP) //I check if the received frame is an ADDBA Response
-					{
-						if(addbaResponseFrame->status == 0) // I check the status to know if the receiver can send Block Ack
-						{ 
+						if(authFrame->seq == IEEE80211_AUTH_OPEN_REQUEST)
+						{
 							/*uint8_t* ACKpacket = (uint8_t*) malloc( ACKLength );
-							ACKPacket=constructACKPacket(dataRate, channel, accessPoints[0], &ACKLength, frame->i_addr2);
+							constructACKPacket(ACKPacket, dataRate, channel, accessPoints[0], &ACKLength, frame->i_addr2);
 							ssize_t bytes = write( rawSocket, ACKPacket, ACKLength );
 							assert( bytes == (ssize_t) ACKLength );
 							//printf("ACK sent\n");
 							//packet_hexdump( (const uint8_t*) ACKPacket, ACKLength );
 							free(ACKPacket);*/
-							for(int i=0; i<4;i++)
-							{
+						
+						
+							uint8_t* authPacket = (uint8_t*) malloc( authLength );
+							constructAuthResponse(authPacket ,dataRate, channel, accessPoints[0], &authLength, frame->i_addr2 );
+							bytes = write( rawSocket, authPacket, authLength);
+							assert(bytes == (ssize_t) authLength);
+							//printf("Authentication response sent\n");
+							//packet_hexdump((const uint8_t*) authPacket, authLength);
+							free(authPacket);
+						}
+				
+
+					}
+					else if( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
+						(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_ASSOC_REQ ) // We received an Association Request
+					{
+						/*uint8_t* ACKpacket = (uint8_t*) malloc( ACKLength );
+						constructACKPacket(ACKPacket, dataRate, channel, accessPoints[0], &ACKLength, frame->i_addr2);
+						ssize_t bytes = write(rawSocket,ACKPacket,ACKLength);
+						assert(bytes == (ssize_t) ACKLength);
+						//printf("ACK sent\n");
+						//packet_hexdump( (const uint8_t*) ACKPacket, ACKLength);
+						free(ACKPacket);*/
+
+
+						uint8_t* assoPacket = (uint8_t*) malloc( assoLength );
+						constructAssoResponse(assoPacket, dataRate, channel, accessPoints[0], &assoLength, frame->i_addr2);
+						bytes = write(rawSocket, assoPacket, assoLength);
+						assert(bytes== (ssize_t) assoLength);
+						//printf("Association Response\n");
+						//packet_hexdump( (const uint8_t*) assoPacket, assoLength);
+						free(assoPacket);
+
+						if(numFrames!=0)
+						{
+							uint8_t* ADDBAPacket = (uint8_t*) malloc( addBALength );
+							constructADDBARequest(ADDBAPacket, dataRate, channel, accessPoints[0], &addBALength, frame->i_addr2);
+							bytes = write(rawSocket, ADDBAPacket, addBALength);
+							assert(bytes == (ssize_t) addBALength);
+							//printf("ADDBA Request sent\n");
+							//packet_hexdump( (const uint8_t*) ADDBAPacket, addBALength);
+							free(ADDBAPacket);
+						}
+						else{
+							uint8_t* dataPacket = (uint8_t*) malloc( dataLengthWithoutAggr );
+							constructDataPacket(dataPacket, dataRate, channel, accessPoints[0], &dataLengthWithoutAggr, sourceIP, dstIP ,frame->i_addr2, 0);
+							bytes = write(rawSocket, dataPacket, dataLengthWithoutAggr);
+							assert(bytes== (ssize_t) dataLengthWithoutAggr);
+							//printf("Data Packet sent\n");
+							//packet_hexdump( (const uint8_t*) dataPacket, dataLengthWithoutAggr);
+							free(dataPacket);
+						}
+							
+					
+					
+					}
+					else if( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
+						(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_ACTION ) //We receive an Action Frame
+					{
+
+						packetIterator += sizeof(struct ieee80211_frame);
+						struct ieee80211_addba_response* addbaResponseFrame = (struct ieee80211_addba_response*)( packetIterator );
+
+						if(addbaResponseFrame->category == IEEE80211_CATEG_BA && addbaResponseFrame->actionCode == IEEE80211_ACTION_ADDBA_RESP) //I check if the received frame is an ADDBA Response
+						{
+							if(addbaResponseFrame->status == 0) // I check the status to know if the receiver can send Block Ack
+							{ 
+								/*uint8_t* ACKpacket = (uint8_t*) malloc( ACKLength );
+								ACKPacket=constructACKPacket(dataRate, channel, accessPoints[0], &ACKLength, frame->i_addr2);
+								ssize_t bytes = write( rawSocket, ACKPacket, ACKLength );
+								assert( bytes == (ssize_t) ACKLength );
+								//printf("ACK sent\n");
+								//packet_hexdump( (const uint8_t*) ACKPacket, ACKLength );
+								free(ACKPacket);*/
+							
 								uint8_t* dataPacket = (uint8_t*) malloc( dataLength );
 								constructDataPacket(dataPacket ,dataRate, channel, accessPoints[0], &dataLength, sourceIP, dstIP ,frame->i_addr2, numFrames);
 								bytes = write(rawSocket, dataPacket, dataLength);
 								assert(bytes== (ssize_t) dataLength);
 								//printf("Data Packet sent\n");
 								//packet_hexdump( (const uint8_t*) dataPacket, dataLength);
-								free(dataPacket);
-							}							
+								free(dataPacket);						
 
-							uint8_t* BARPacket = (uint8_t*) malloc( BARLength );
-							constructBARequest(BARPacket, dataRate, channel, accessPoints[0], &BARLength, frame->i_addr2);
-							bytes = write( rawSocket, BARPacket, BARLength);
-							assert( bytes == (ssize_t) BARLength);
-							printf("Block ACK Request sent\n");
-							//packet_hexdump( (const uint8_t*) BARPacket, BARLength);
-							free(BARPacket);		
-						}else
-						{
-							perror("Device unable to do frame aggregation");
+								uint8_t* BARPacket = (uint8_t*) malloc( BARLength );
+								constructBARequest(BARPacket, dataRate, channel, accessPoints[0], &BARLength, frame->i_addr2);
+								bytes = write( rawSocket, BARPacket, BARLength);
+								assert( bytes == (ssize_t) BARLength);
+								printf("Block ACK Request sent\n");
+								//packet_hexdump( (const uint8_t*) BARPacket, BARLength);
+								free(BARPacket);		
+							}else
+							{
+								perror("Device unable to do frame aggregation");
+							}
 						}
-					}
 
+					}
 				}
+			}else{
 			}
 			
 		}else{
@@ -1987,8 +2101,8 @@ int main(int argc, char *argv[])
 
 			//printf("Prueba: %zu\n",beaconLength);
 			ssize_t bytes = write( rawSocket, beaconPacket, beaconLength);
-			//printf("Beacon sent\n");
-			//packet_hexdump( (const uint8_t*) beaconPacket, beaconLength );
+			printf("Beacon sent\n");
+			packet_hexdump( (const uint8_t*) beaconPacket, beaconLength );
 			assert( bytes == (ssize_t) beaconLength );
 			if ( bytes < (ssize_t) beaconLength )
 			{
