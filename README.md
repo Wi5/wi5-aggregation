@@ -18,8 +18,33 @@ What does this software do?
 The main purpose of this software is to implement and measure the use of Wi-Fi A-MPDUs. Therefore, it runs all this process:
 
 ```
+fakeaps.c            STA that connects
 |                      |
-|--- ADDBA Request --->|
+|------- Beacon ------>|            The SSID is "ap0"
+|------- Beacon ------>|
+|------- Beacon ------>|
+|                      |
+|<--- Probe request ---|            The association process starts now
+|                      |
+|--- Probe response -->|
+|<------- ACK ---------|
+|                      |
+|<--- Auth request ----|
+|-------- ACK -------->|
+|                      |
+|--- Auth response --->|
+|<------- ACK ---------|
+|                      |
+|<--- Assoc request ---|
+|-------- ACK -------->|
+|                      |
+|-- Assoc response --->|
+|<------- ACK ---------|
+|                      | ------------- The association is completed
+|                      |
+|                      | ------------- Now the process of sending A-MPDUs can start
+|                      |
+|--- ADDBA Request --->|            AddBaRequest is an Action frame 
 |                      |
 |<------- ACK ---------|
 |                      |
@@ -32,15 +57,14 @@ The main purpose of this software is to implement and measure the use of Wi-Fi A
 |         ...          |
 |-------- A-MPDU ----->|            Last A-MPDU
 |                      |
-|------ BA Request --->|            Block ACK reques
+|------ BA Request --->|            Block ACK request
 |                      |
 |<------- BA  ---------|            Block ACK
 ```
 
-
 It creates a "fake AP" called `ap0` and starts sending beacons.
 
-When a STA is associated to this "fake AP," the software runs all the 
+When the association of the STA to this "fake AP" is completed, the software runs all the mechanisms required for sending a number of A-MPDUs to it, and ends.
 
 How to use the software
 -----------------------
