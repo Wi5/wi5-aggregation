@@ -12,6 +12,36 @@ Note: TO USE THIS SOFTWARE YOU NEED A NETWORK DRIVER THAT SUPPORTS [RADIOTAP](ht
 
 These changes are being made by Cristian Hernandez in [University of Zaragoza](http://www.unizar.es), as a part of the H2020 [Wi-5 project](http://www.wi5.eu).
 
+What does this software do?
+---------------------------
+
+The main purpose of this software is to implement and measure the use of Wi-Fi A-MPDUs. Therefore, it runs all this process:
+
+``
+            |                      |
+            |--- ADDBA Request --->|
+            |                      |
+            |<------- ACK ---------|
+            |                      |
+            |<-- ADDBA Response ---|            
+            |                      |
+            |-------- ACK -------->|  
+            |                      |
+            |-------- A-MPDU ----->|
+            |-------- A-MPDU ----->|
+            |         ...          |
+            |-------- A-MPDU ----->|
+            |                      |
+            |------ BA Request --->|
+            |                      |
+            |<------- BA  ---------|            
+``
+
+
+It creates a "fake AP" called `ap0` and starts sending beacons.
+
+When a STA is associated to this "fake AP," the software runs all the 
+
 How to use the software
 -----------------------
 
