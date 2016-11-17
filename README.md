@@ -17,25 +17,25 @@ What does this software do?
 
 The main purpose of this software is to implement and measure the use of Wi-Fi A-MPDUs. Therefore, it runs all this process:
 
-``
-            |                      |
-            |--- ADDBA Request --->|
-            |                      |
-            |<------- ACK ---------|
-            |                      |
-            |<-- ADDBA Response ---|            
-            |                      |
-            |-------- ACK -------->|  
-            |                      |
-            |-------- A-MPDU ----->|
-            |-------- A-MPDU ----->|
-            |         ...          |
-            |-------- A-MPDU ----->|
-            |                      |
-            |------ BA Request --->|
-            |                      |
-            |<------- BA  ---------|            
-``
+```
+|                      |
+|--- ADDBA Request --->|
+|                      |
+|<------- ACK ---------|
+|                      |
+|<-- ADDBA Response ---|            
+|                      |
+|-------- ACK -------->|  
+|                      |
+|-------- A-MPDU ----->|            First A-MPDU
+|-------- A-MPDU ----->|
+|         ...          |
+|-------- A-MPDU ----->|            Last A-MPDU
+|                      |
+|------ BA Request --->|            Block ACK reques
+|                      |
+|<------- BA  ---------|            Block ACK
+```
 
 
 It creates a "fake AP" called `ap0` and starts sending beacons.
