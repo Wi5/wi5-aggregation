@@ -1207,7 +1207,7 @@ void constructAssoResponse (uint8_t* packet, uint8_t dataRate, uint8_t channel, 
 	WMM.ACI3 = 0x62;
 	WMM.ECW3 = 0x32;
 	WMM.TxLim3 = htons(0x002f);
-	memcpy( info->info, &WMM, sizeof(WMM) ); 
+	memcpy( info->info, &WMM, sizeof(WMM) );
 
 	assert( remainingBytes == 0 );
 	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
@@ -1308,8 +1308,7 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 {
 	static uint32_t cont = 1502;
 
-	int numCharDatagram = 6; // It should be lower than 1439 otherwise you will have a problem with the write.
-
+	int numCharDatagram = 500;
 	//uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
 	// For 802.11b, either 1 or 2 Mbps is the permitted rate for broadcasts
 	// For 802.11a, 6Mbps is the permitted rate for broadcasts
@@ -1428,7 +1427,7 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 		struct iphdr* iph = (struct iphdr*) packetIterator;
 		packetIterator += sizeof(*iph);
 		remainingBytes -= sizeof(*iph);
-     
+
     	//UDP header
 	    assert( remainingBytes >= sizeof(struct udphdr) );
 		struct udphdr *udph = (struct udphdr *) packetIterator;
@@ -1693,7 +1692,7 @@ void constructBARequest (uint8_t* packet, uint8_t dataRate, uint8_t channel, con
 	// BARequest packet flags
 	dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_CTL | IEEE80211_FC0_SUBTYPE_BAR;
 	//printf("%i\n", *dot80211->i_fc);
-	dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
+	//dot80211->i_fc[1] = IEEE80211_FC1_DIR_NODS;
 	//printf("%i\n", *dot80211->i_fc);
 	//Add by CHdezFdez as an example
 	dot80211->i_dur[0] = 0x00;
@@ -1737,12 +1736,12 @@ static const size_t BEACON_TIMESTAMP_OFFSET = sizeof( struct ieee80211_frame );
 
 void help()
 {
-	printf( "fakeaps [raw device] [channel it is tuned to] [number of frames in each A-MPDU (0 means no frame aggregation)] [destination IP address using (.)] [destination MAC address using (:)]\n" );
+	printf( "fakeaps [raw device] [channel it is tuned to] [number of frames in each A-MPDU (0 means no frame aggregation)] [number of packages to send] [destination IP address using (.)] [destination MAC address using (:)]\n" );
 }
 
 int main(int argc, char *argv[])
 {
-	if ( argc != 6 )
+	if ( argc != 7 )
 	{
 		help();
 		return 1;
@@ -1761,9 +1760,9 @@ int main(int argc, char *argv[])
  	u_int8_t sourceIP[4];
  	parseIPAddresses(inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr), &sourceIP[0]);
 	u_int8_t dstIP[4];
-	parseIPAddresses(argv[4], &dstIP[0]);
+	parseIPAddresses(argv[5], &dstIP[0]);
 	u_int8_t dstMAC[6];
-	parseMACAddresses(argv[5], &dstMAC[0]);
+	parseMACAddresses(argv[6], &dstMAC[0]);
 
 	uint8_t channel = strtol( argv[2], NULL, 10 );
 	if ( channel <= 0 || 255 <= channel )
@@ -1774,7 +1773,8 @@ int main(int argc, char *argv[])
 	}
 
 	uint8_t numFrames = atoi(argv[3]);
-	
+	uint8_t numPcks = atoi(argv[4]);
+
 	const uint8_t dataRate = 108;
 	const char* device = argv[1];
 
@@ -1800,7 +1800,7 @@ int main(int argc, char *argv[])
 	// SSID
 	sizeof(struct ieee80211_info_element) + accessPoints[0]->ssidLength;
 
-	int numCharDatagram =6;
+	int numCharDatagram = 500;
 	int zeropadding = 0;
 
 	int MPDUsize = sizeof(struct ieee80211_qosframe)+sizeof(struct llc)+sizeof(struct snap)+sizeof(struct iphdr)+sizeof(struct udphdr)+numCharDatagram*sizeof(char);
@@ -1838,8 +1838,8 @@ int main(int argc, char *argv[])
 	assert( beaconLength > 0 );
 
 	ssize_t bytes = write( rawSocket, beaconPacket, beaconLength);
-	printf("Beacon sent\n");
-	packet_hexdump( (const uint8_t*) beaconPacket, beaconLength );
+	//printf("Beacon sent\n");
+	//packet_hexdump( (const uint8_t*) beaconPacket, beaconLength );
 	assert( bytes == (ssize_t) beaconLength );
 	if ( bytes < (ssize_t) beaconLength )
 	{
@@ -2019,13 +2019,18 @@ int main(int argc, char *argv[])
 							free(ADDBAPacket);
 						}
 						else{
-							uint8_t* dataPacket = (uint8_t*) malloc( dataLengthWithoutAggr );
-							constructDataPacket(dataPacket, dataRate, channel, accessPoints[0], &dataLengthWithoutAggr, sourceIP, dstIP ,frame->i_addr2, 0);
-							bytes = write(rawSocket, dataPacket, dataLengthWithoutAggr);
-							assert(bytes== (ssize_t) dataLengthWithoutAggr);
-							//printf("Data Packet sent\n");
-							//packet_hexdump( (const uint8_t*) dataPacket, dataLengthWithoutAggr);
-							free(dataPacket);
+							for(int i=0; i<numPcks; i++)
+							{
+								uint8_t* dataPacket = (uint8_t*) malloc( dataLengthWithoutAggr );
+								constructDataPacket(dataPacket, dataRate, channel, accessPoints[0], &dataLengthWithoutAggr, sourceIP, dstIP ,frame->i_addr2, 0);
+								bytes = write(rawSocket, dataPacket, dataLengthWithoutAggr);
+								assert(bytes== (ssize_t) dataLengthWithoutAggr);
+								printf("Data Packet sent\n");
+								//packet_hexdump( (const uint8_t*) dataPacket, dataLengthWithoutAggr);
+								free(dataPacket);
+
+							}
+
 						}
 							
 					
@@ -2050,21 +2055,25 @@ int main(int argc, char *argv[])
 								//packet_hexdump( (const uint8_t*) ACKPacket, ACKLength );
 								free(ACKPacket);*/
 							
-								uint8_t* dataPacket = (uint8_t*) malloc( dataLength );
-								constructDataPacket(dataPacket ,dataRate, channel, accessPoints[0], &dataLength, sourceIP, dstIP ,frame->i_addr2, numFrames);
-								bytes = write(rawSocket, dataPacket, dataLength);
-								assert(bytes== (ssize_t) dataLength);
-								//printf("Data Packet sent\n");
-								//packet_hexdump( (const uint8_t*) dataPacket, dataLength);
-								free(dataPacket);						
+								for(int i=0; i<numPcks; i++){
+									uint8_t* dataPacket = (uint8_t*) malloc( dataLength );
+									constructDataPacket(dataPacket ,dataRate, channel, accessPoints[0], &dataLength, sourceIP, dstIP ,frame->i_addr2, numFrames);
+									bytes = write(rawSocket, dataPacket, dataLength);
+									assert(bytes== (ssize_t) dataLength);
+									//printf("Data Packet sent\n");
+									//packet_hexdump( (const uint8_t*) dataPacket, dataLength);
+									free(dataPacket);
+												
 
-								uint8_t* BARPacket = (uint8_t*) malloc( BARLength );
-								constructBARequest(BARPacket, dataRate, channel, accessPoints[0], &BARLength, frame->i_addr2);
-								bytes = write( rawSocket, BARPacket, BARLength);
-								assert( bytes == (ssize_t) BARLength);
-								printf("Block ACK Request sent\n");
-								//packet_hexdump( (const uint8_t*) BARPacket, BARLength);
-								free(BARPacket);		
+									uint8_t* BARPacket = (uint8_t*) malloc( BARLength );
+									constructBARequest(BARPacket, dataRate, channel, accessPoints[0], &BARLength, frame->i_addr2);
+									bytes = write( rawSocket, BARPacket, BARLength);
+									assert( bytes == (ssize_t) BARLength);
+									printf("Block ACK Request sent\n");
+									//packet_hexdump( (const uint8_t*) BARPacket, BARLength);
+									free(BARPacket);
+								}
+
 							}else
 							{
 								perror("Device unable to do frame aggregation");
@@ -2101,8 +2110,8 @@ int main(int argc, char *argv[])
 
 			//printf("Prueba: %zu\n",beaconLength);
 			ssize_t bytes = write( rawSocket, beaconPacket, beaconLength);
-			printf("Beacon sent\n");
-			packet_hexdump( (const uint8_t*) beaconPacket, beaconLength );
+			//printf("Beacon sent\n");
+			//packet_hexdump( (const uint8_t*) beaconPacket, beaconLength );
 			assert( bytes == (ssize_t) beaconLength );
 			if ( bytes < (ssize_t) beaconLength )
 			{
