@@ -15,19 +15,19 @@ These changes are being made by Cristian Hernandez in [University of Zaragoza](h
 What does this software do?
 ---------------------------
 
-The main purpose of this software is to send Wi-Fi A-MPDUs, with the aim of measuring the savings they provide.
+The main purpose of this software is to send a number of Wi-Fi A-MPDUs, with the aim of measuring the savings they provide.
 
 Therefore, it runs all this process:
 
 ```
 fakeaps.c            STA that connects
 |                      |
-|------- Beacon ------>|            The SSID is "ap0"
+|------- Beacon ------>|            The announced SSID is "ap0"
 |------- Beacon ------>|
 |------- Beacon ------>|
 |                      |
 |<--- Probe request ---| 
-|                      |            The association process starts now
+|                      |----------- The association process starts now
 |--- Probe response -->|
 |<------- ACK ---------|
 |                      |
@@ -46,7 +46,7 @@ fakeaps.c            STA that connects
 |                      |
 |                      | ------------- Now the process of sending A-MPDUs can start
 |                      |
-|--- ADDBA Request --->|            AddBaRequest is an Action frame 
+|--- ADDBA Request --->|               AddBaRequest is an Action frame 
 |                      |
 |<------- ACK ---------|
 |                      |
@@ -68,8 +68,11 @@ It creates a "fake AP" called `ap0` and starts sending beacons.
 
 When the association of the STA to this "fake AP" is completed, the software runs all the mechanisms required for sending a number of A-MPDUs to it, and ends.
 
-How to use the software
------------------------
+How to use the software (with an example)
+-----------------------------------------
+
+PC running fakeaps (AP):      wlan0 IP address 192.168.7.1
+PC acting as the STA:         wlan2 IP address 192.168.7.2; MAC address: f4:f2:6d:0c:9d:aa
 
 Download the files:
 
@@ -78,6 +81,13 @@ Download the files:
 Compile the software:
 
       $ gcc --std=gnu99 -Wall -o fakeaps fakeaps.c
+
+Prepare the PC acting as the AP:
+
+	iwconfig wlan0 mode monitor
+	ifconfig wlan0 up
+	ifconfig wlan0 192.168.7.1
+	iwconfig wlan0 channel 5
 
 Run the software:
 
@@ -90,4 +100,34 @@ This is the meaning of the parameters:
   - `2`: number of packets that are going to travel in an A-MPDU.
   - `10`: number of A-MPDUs that will be sent.
   - `192.168.7.2`: IP address of the STA that is going to connect. It will be the destination of the A-MPDUs to be sent.
-  - `f4:f2:6d:0c:9d:aa`: MAC address of the STA that is going to connect. It is used as a filter. Only this MAC is allowed to connect to the "fake AP".
+  - `f4:f2:6d:0c:9d:aa`: MAC address of the STA that is going to connect. The MAC is used as a filter. Only this MAC is allowed to connect to the "fake AP".
+
+Prepare the PC acting as the STA:
+
+	iwconfig wlan2 mode managed
+	ifconfig wlan2 up
+	ifconfig wlan2 192.168.7.2
+	iwconfig wlan2 channel 5
+      
+Connect the STA to the AP:
+
+      iwconfig wlan2 essid ap0
+      
+After the association of the STA, the software runs all the mechanisms required for sending 10 A-MPDUs (each of them containing 2 packets) to it, and ends.
+
+How to capture the traffic
+--------------------------
+
+Prepare another interface (in another computer) in monitor mode:
+
+	iw phy phy0 interface add mon0 type monitor
+	ifconfig mon0 up
+	iwconfig mon0 channel 5
+      
+And capture the traffic:
+
+      tcpdump -e -i mon0 -w /home/proyecto/Aggregation/fakeapscap.pcap
+
+You can see it in Wireshark using this filter:
+
+      wlan.da == f4:f2:6d:0c:9d:aa
