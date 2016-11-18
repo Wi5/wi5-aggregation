@@ -15,7 +15,9 @@ These changes are being made by Cristian Hernandez in [University of Zaragoza](h
 What does this software do?
 ---------------------------
 
-The main purpose of this software is to implement and measure the use of Wi-Fi A-MPDUs. Therefore, it runs all this process:
+The main purpose of this software is to send Wi-Fi A-MPDUs, with the aim of measuring the savings they provide.
+
+Therefore, it runs all this process:
 
 ```
 fakeaps.c            STA that connects
@@ -24,8 +26,8 @@ fakeaps.c            STA that connects
 |------- Beacon ------>|
 |------- Beacon ------>|
 |                      |
-|<--- Probe request ---|            The association process starts now
-|                      |
+|<--- Probe request ---| 
+|                      |            The association process starts now
 |--- Probe response -->|
 |<------- ACK ---------|
 |                      |
