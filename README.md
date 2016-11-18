@@ -71,8 +71,10 @@ fakeaps.c            STA that connects
 How to use the software (with an example)
 -----------------------------------------
 
-PC running fakeaps (AP):      wlan0 IP address 192.168.7.1; MAC address: 60:e3:27:1d:32:b7
-PC acting as the STA:         wlan2 IP address 192.168.7.2; MAC address: f4:f2:6d:0c:9d:aa
+PC running fakeaps (AP):      `wlan0` IP address `192.168.7.1`; MAC address: `60:e3:27:1d:32:b7`.
+
+PC acting as the STA:         `wlan2` IP address `192.168.7.2`; MAC address: `f4:f2:6d:0c:9d:aa`.
+
 
 Download the files:
 
