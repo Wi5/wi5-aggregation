@@ -8,7 +8,7 @@ And we extended it to implement the 802.11 authentication and association proces
 
 Our final purpose is to implement frame aggregation (A-MPDU) between a "fake AP" and a normal terminal running 802.11n or 802.11ac.
 
-Note: TO USE THIS SOFTWARE YOU NEED A NETWORK DRIVER THAT SUPPORTS [RADIOTAP](http://www.radiotap.org/), OTHERWISE IT MAY CONSIDER THE HEADERS AS PRISM, SO IT WON'T WORK AS EXPECTED
+Note: TO USE THIS SOFTWARE YOU NEED A NETWORK DRIVER THAT SUPPORTS [RADIOTAP](http://www.radiotap.org/), OTHERWISE IT MAY CONSIDER THE HEADERS AS PRISM, SO IT WON'T WORK AS EXPECTED.
 
 These changes are being made by Cristian Hernandez in [University of Zaragoza](http://www.unizar.es), as a part of the H2020 [Wi-5 project](http://www.wi5.eu).
 
@@ -16,6 +16,10 @@ What does this software do?
 ---------------------------
 
 The main purpose of this software is to send a number of Wi-Fi A-MPDUs, with the aim of measuring the savings they provide.
+
+It creates a "fake AP" called `ap0` and starts sending beacons.
+
+When the association of the STA to this "fake AP" is completed, the software runs all the mechanisms required for sending a number of A-MPDUs to it, and ends.
 
 Therefore, it runs all this process:
 
@@ -64,14 +68,10 @@ fakeaps.c            STA that connects
 |<------- BA  ---------|            Block ACK
 ```
 
-It creates a "fake AP" called `ap0` and starts sending beacons.
-
-When the association of the STA to this "fake AP" is completed, the software runs all the mechanisms required for sending a number of A-MPDUs to it, and ends.
-
 How to use the software (with an example)
 -----------------------------------------
 
-PC running fakeaps (AP):      wlan0 IP address 192.168.7.1
+PC running fakeaps (AP):      wlan0 IP address 192.168.7.1; MAC address: 60:e3:27:1d:32:b7
 PC acting as the STA:         wlan2 IP address 192.168.7.2; MAC address: f4:f2:6d:0c:9d:aa
 
 Download the files:
@@ -130,4 +130,4 @@ And capture the traffic:
 
 You can see it in Wireshark using this filter:
 
-      wlan.da == f4:f2:6d:0c:9d:aa
+      wlan.sa == f4:f2:6d:0c:9d:aa || wlan.da == f4:f2:6d:0c:9d:aa || wlan.ra == f4:f2:6d:0c:9d:aa || wlan.ta == f4:f2:6d:0c:9d:aa || wlan.da == 60:e3:27:1d:32:b7 || wlan.sa == 60:e3:27:1d:32:b7 || wlan.ra == 60:e3:27:1d:32:b7 || wlan.ta == 60:e3:27:1d:32:b7 
