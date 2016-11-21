@@ -123,12 +123,13 @@ Prepare the PC acting as the AP:
 
 Run the software:
 
-      ./fakeaps wlan0 5 2 10 192.168.7.2 f4:f2:6d:0c:9d:aa
+      ./fakeaps wlan0 5 500 2 10 192.168.7.2 f4:f2:6d:0c:9d:aa
 
 This is the meaning of the parameters:
 
   - `wlan0`: name of the interface where you are creating the "fake AP". It has to be in monitor mode.
   - `5`: number of the Wi-Fi channel where you are creating the "fake AP".
+  - `500`: packet size at IP level (including IP header).
   - `2`: number of packets that are going to travel in an A-MPDU.
   - `10`: number of A-MPDUs that will be sent.
   - `192.168.7.2`: IP address of the STA that is going to connect. It will be the destination of the A-MPDUs to be sent.
