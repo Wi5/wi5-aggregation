@@ -75,6 +75,36 @@ PC running fakeaps (AP):      `wlan0` IP address `192.168.7.1`; MAC address: `60
 
 PC acting as the STA:         `wlan2` IP address `192.168.7.2`; MAC address: `f4:f2:6d:0c:9d:aa`.
 
+Hardware: two TP-Link TL-WN722N interfaces (one in the "fake AP" and other in the STA):
+
+	$lsusb
+	Bus 001 Device 002: ID 0cf3:9271 Atheros Communications, Inc. AR9271 802.11n
+
+The devices are using the `ath9k_htc` driver:
+
+	$lsmod
+
+	(...)
+	ath9k_htc              48538  0
+	ath9k_common           12728  1 ath9k_htc
+	ath9k_hw              322112  2 ath9k_common,ath9k_htc
+	(...)
+	ath                    21370  3 ath9k_hw,ath9k_common,ath9k_htc
+	mac80211              192806  1 ath9k_htc
+	(...)
+	cfg80211              137243  3 mac80211,ath,ath9k_htc
+
+
+	$/sbin/modinfo ath9k_htc
+
+	filename:       /lib/modules/3.2.0-4-amd64/kernel/drivers/net/wireless/ath/ath9k/ath9k_htc.ko
+	firmware:       htc_9271.fw
+	firmware:       htc_7010.fw
+	description:    Atheros driver 802.11n HTC based wireless devices
+	license:        Dual BSD/GPL
+	author:         Atheros Communications
+
+Radiotap headers are used.
 
 Download the files:
 
