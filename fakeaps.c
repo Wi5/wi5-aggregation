@@ -1447,51 +1447,51 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 		packetIterator += numCharDatagram*sizeof(char);
 		remainingBytes -= numCharDatagram*sizeof(char);
      
-	    	struct sockaddr_in sin;
-    		struct pseudo_header psh;
+	    struct sockaddr_in sin;
+    	struct pseudo_header psh;
 
-    		sin.sin_family = AF_INET;
-	    	sin.sin_port = htons(8080);
-    		u_int32_t source_address = htonl((((0x00000000 | *sourceIP<<24) | *(sourceIP+1)<<16) | *(sourceIP+2)<<8) | *(sourceIP+3));
-    		u_int32_t destination_address = htonl((((0x00000000 | *dstIP<<24) | *(dstIP+1)<<16) | *(dstIP+2)<<8) | *(dstIP+3));
-	    	sin.sin_addr.s_addr = destination_address;
+    	sin.sin_family = AF_INET;
+	    sin.sin_port = htons(8080);
+    	u_int32_t source_address = htonl((((0x00000000 | *sourceIP<<24) | *(sourceIP+1)<<16) | *(sourceIP+2)<<8) | *(sourceIP+3));
+    	u_int32_t destination_address = htonl((((0x00000000 | *dstIP<<24) | *(dstIP+1)<<16) | *(dstIP+2)<<8) | *(dstIP+3));
+	    sin.sin_addr.s_addr = destination_address;
      
-	    	// Fill in the fields of the IP Header
-	    	iph->ihl = 5;
-    		iph->version = 4;
-	    	iph->tos = 0;
-    		iph->tot_len = htons(sizeof (struct iphdr) + sizeof (struct udphdr) + strlen(data));
-	    	iph->id = htons (cont); //Id of this packet
-    		cont++;
-    		iph->frag_off = 0;
-	    	iph->ttl = 255;
-    		iph->protocol = IPPROTO_UDP;
-	    	iph->saddr = source_address;    //Spoof the source ip address
-	    	iph->daddr = destination_address;
+	    // Fill in the fields of the IP Header
+	    iph->ihl = 5;
+    	iph->version = 4;
+	    iph->tos = 0;
+    	iph->tot_len = htons(sizeof (struct iphdr) + sizeof (struct udphdr) + strlen(data));
+	    iph->id = htons (cont); //Id of this packet
+    	cont++;
+    	iph->frag_off = 0;
+	    iph->ttl = 255;
+    	iph->protocol = IPPROTO_UDP;
+	    iph->saddr = source_address;    //Spoof the source ip address
+	    iph->daddr = destination_address;
      
 		//IP checksum
-    		iph->check = checksum((uint8_t*) iph, sizeof(iph));
+    	iph->check = checksum((uint8_t*) iph, sizeof(iph));
 
-	    	// Fill in the fields of the UDP header
-    		udph->source = htons (6666);
-	    	udph->dest = htons (8622);
-    		udph->len = htons(sizeof(struct udphdr) + strlen(data)); //udp header size
-    		udph->check = 0; //leave checksum 0 now, filled later by pseudo header
+	    // Fill in the fields of the UDP header
+    	udph->source = htons (6666);
+	    udph->dest = htons (8622);
+    	udph->len = htons(sizeof(struct udphdr) + strlen(data)); //udp header size
+    	udph->check = 0; //leave checksum 0 now, filled later by pseudo header
 	     
 		// Now the UDP checksum using the pseudo header
-    		psh.source_address = source_address;
-    		psh.dest_address = destination_address;
-	    	psh.placeholder = 0;
-    		psh.protocol = IPPROTO_UDP;
-    		psh.udp_length = htons(sizeof(struct udphdr) + strlen(data) );
+    	psh.source_address = source_address;
+    	psh.dest_address = destination_address;
+	    psh.placeholder = 0;
+    	psh.protocol = IPPROTO_UDP;
+    	psh.udp_length = htons(sizeof(struct udphdr) + strlen(data) );
 		int psize = sizeof(struct pseudo_header) + sizeof(struct udphdr) + strlen(data);
-    		pseudogram = malloc(psize);
+    	pseudogram = malloc(psize);
 	     
-    		memcpy(pseudogram , (char*) &psh , sizeof (struct pseudo_header));
-    		memcpy(pseudogram + sizeof(struct pseudo_header) , udph , sizeof(struct udphdr) + strlen(data));
+    	memcpy(pseudogram , (char*) &psh , sizeof (struct pseudo_header));
+    	memcpy(pseudogram + sizeof(struct pseudo_header) , udph , sizeof(struct udphdr) + strlen(data));
      
-	    	udph->check = checksum( (uint8_t*) pseudogram , psize);
-	    	free(pseudogram);
+	    udph->check = checksum( (uint8_t*) pseudogram , psize);
+	    free(pseudogram);
 
 	} else {	// numFrames!=0
 
@@ -1649,16 +1649,10 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 				packetIterator += zeropadding*sizeof(char);
 				remainingBytes -= zeropadding*sizeof(char);
 	    	}
-	    	
-
 		}
 	}
-	
-	
-
 	assert( remainingBytes == 0 );
-	//packet_hexdump( (const uint8_t*) packet, *beaconLength );
-
+	packet_hexdump( (const uint8_t*) packet, *DataLength );
 }
 
 void constructBARequest (uint8_t* packet, uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* BALength, const uint8_t* destinationMAC)
