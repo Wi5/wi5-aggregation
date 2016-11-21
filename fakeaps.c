@@ -10,7 +10,7 @@ Thanks to Evan Jones for his work.
 And used to implement the authentication, association. And finally our purpose is to implement frame aggregation (A-MPDU).
 This changes will be made by Cristian Hernandez.
 
-TO USE IT YOU NEED A NETWORK DRIVER THAT SUPPORT RADIOTAP, OTHERWISE IT WON'T WORK AS EXPECTED
+TO USE IT YOU NEED A NETWORK DRIVER THAT SUPPORTS RADIOTAP, OTHERWISE IT WON'T WORK AS EXPECTED
 
 Fake Access Points using Atheros wireless cards in Linux
 Written by Evan Jones <ejones@uwaterloo.ca>
