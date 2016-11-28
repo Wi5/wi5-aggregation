@@ -10,7 +10,7 @@ Thanks to Evan Jones for his work.
 And used to implement the authentication, association. And finally our purpose is to implement frame aggregation (A-MPDU).
 This changes will be made by Cristian Hernandez.
 
-TO USE IT YOU NEED A NETWORK DRIVER THAT SUPPORTS RADIOTAP, OTHERWISE IT WON'T WORK AS EXPECTED
+TO USE IT YOU NEED A NETWORK DRIVER THAT SUPPORT RADIOTAP, OTHERWISE IT WON'T WORK AS EXPECTED
 
 Fake Access Points using Atheros wireless cards in Linux
 Written by Evan Jones <ejones@uwaterloo.ca>
@@ -638,7 +638,7 @@ void constructBeaconPacket(uint8_t* packet, uint8_t dataRate, uint8_t channel, c
 	info->info_elemid = IEEE80211_ELEMID_HTCAPS;
 	info->info_length = sizeof(struct HTCapabilities);
 	struct HTCapabilities htcap;
-	htcap.info = htons(0xac19);
+	htcap.info = htons(0xee19);
 	htcap.ampduParams = 0x1b;
 	htcap.rxModulation1 = htonl(0xffffff00);
 	htcap.rxModulation2 = 0x00000000;
@@ -1363,7 +1363,17 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 
 		status->reference = mpduseq;
 		mpduseq ++;
-		status->flags = 0x0000;
+		enum
+		{
+	    	A_MPDU_STATUS_NONE                = 0x00, 
+	    	A_MPDU_STATUS_REPORT_ZERO_LENGTH  = 0x01, 
+	    	A_MPDU_STATUS_IS_ZERO_LENGTH      = 0x02, 
+			A_MPDU_STATUS_LAST_KNOWN          = 0x04, 
+			A_MPDU_STATUS_LAST                = 0x08, 
+			A_MPDU_STATUS_DELIMITER_CRC_ERROR = 0x10, 
+			A_MPDU_STATUS_DELIMITER_CRC_KNOWN = 0x20  
+		};
+		status->flags = A_MPDU_STATUS_LAST_KNOWN || A_MPDU_STATUS_DELIMITER_CRC_KNOWN;
 	}
 
 	if(numFrames==0)
@@ -1815,7 +1825,7 @@ int main(int argc, char *argv[])
 	// SSID
 	sizeof(struct ieee80211_info_element) + accessPoints[0]->ssidLength;
 
-	int numCharDatagram = 500;
+	int numCharDatagram = packet_size - 28; //IP length - IP Header -UDP Header
 	int zeropadding = 0;
 
 	int MPDUsize = sizeof(struct ieee80211_qosframe)+sizeof(struct llc)+sizeof(struct snap)+sizeof(struct iphdr)+sizeof(struct udphdr)+numCharDatagram*sizeof(char);
@@ -2039,7 +2049,7 @@ int main(int argc, char *argv[])
 								// Construct and send A-MPDU
 								printf("##### Data Packet %i\n", i+1);
 								uint8_t* dataPacket = (uint8_t*) malloc( dataLengthWithoutAggr );
-								constructDataPacket(dataPacket, dataRate, channel, accessPoints[0], &dataLengthWithoutAggr, sourceIP, dstIP ,frame->i_addr2, 0, packet_size); //QUESTION
+								constructDataPacket(dataPacket, dataRate, channel, accessPoints[0], &dataLengthWithoutAggr, sourceIP, dstIP ,frame->i_addr2, 0, numCharDatagram); //QUESTION
 								bytes = write(rawSocket, dataPacket, dataLengthWithoutAggr);
 								assert(bytes== (ssize_t) dataLengthWithoutAggr);
 								//packet_hexdump( (const uint8_t*) dataPacket, dataLengthWithoutAggr);
@@ -2071,7 +2081,7 @@ int main(int argc, char *argv[])
 									// Construct and send A-MPDU
 									printf("##### Data Packet %i\n", i+1);
 									uint8_t* dataPacket = (uint8_t*) malloc( dataLength );
-									constructDataPacket(dataPacket ,dataRate, channel, accessPoints[0], &dataLength, sourceIP, dstIP ,frame->i_addr2, numFrames, packet_size);
+									constructDataPacket(dataPacket ,dataRate, channel, accessPoints[0], &dataLength, sourceIP, dstIP ,frame->i_addr2, numFrames, numCharDatagram);
 									bytes = write(rawSocket, dataPacket, dataLength);
 									assert(bytes== (ssize_t) dataLength);
 									//packet_hexdump( (const uint8_t*) dataPacket, dataLength);
