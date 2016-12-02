@@ -1303,10 +1303,18 @@ void constructADDBARequest (uint8_t* packet, uint8_t dataRate, uint8_t channel, 
 
 }
 
-void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* DataLength, uint8_t* sourceIP, 
-	uint8_t* dstIP ,const uint8_t* destinationMAC, uint8_t numFrames, int numCharDatagram)
+void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are going to build. It contains a header and a number of sub-frames
+												// this is the result returned by this function
+							uint8_t dataRate, 
+							uint8_t channel, 
+							const struct AccessPointDescriptor* apDescription, 
+							size_t* DataLength, uint8_t* sourceIP, 
+							uint8_t* dstIP,					// destination IP address
+							const uint8_t* destinationMAC,	// destination MAC address
+							uint8_t numFrames,				// number of sub-frames
+							int numCharDatagram )
 {
-	static uint32_t cont = 1502;
+	static uint32_t cont = 1502;	//QUESTION
 
 	//int numCharDatagram = 500;
 	//uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
@@ -1319,10 +1327,9 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 	int MPDUsize =	sizeof(struct ieee80211_qosframe) + 
 					sizeof(struct llc) +
 					sizeof(struct snap) +
-					sizeof(struct iphdr) +
-					sizeof(struct udphdr) +
-					numCharDatagram*sizeof(char);
-	printf("MPDU size: %d bytes\n", MPDUsize);
+					sizeof(struct iphdr) +			// IP header
+					sizeof(struct udphdr) +			// UDP header
+					numCharDatagram*sizeof(char);	// Payload
 
 	// check if a padding is required (if the size of the MPDU is not a multiple of 4)
 	if((MPDUsize%4)!=0)
@@ -1330,6 +1337,8 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 		zeropadding = (4-(MPDUsize%4));
 		MPDUsize += zeropadding;
 	}
+
+	printf("MPDU size (including padding): %d bytes\n", MPDUsize);
 
 	assert( packet != NULL );
 
@@ -1345,7 +1354,7 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 	radiotap->it_len = sizeof(*radiotap) + sizeof(dataRate);
 	radiotap->it_present = (1 << IEEE80211_RADIOTAP_RATE);
 	
-	if(numFrames != 0){
+	if(numFrames != 0) { // we are building an A-MPDU
 
 		radiotap->it_len += (16-(sizeof(dataRate))) + sizeof(struct ampdu_status);
 		radiotap->it_present = (0x00000000 |(1 << IEEE80211_RADIOTAP_RATE)) | (1 << 20);
@@ -1357,7 +1366,7 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 	packetIterator ++;
 	remainingBytes -= sizeof(dataRate);
 
-	if(numFrames!=0) {
+	if(numFrames != 0) { // we are building an A-MPDU
 		
 		assert ( remainingBytes >= (16-(sizeof(dataRate)%16)));
 		packetIterator += (16-(sizeof(dataRate)%16));
@@ -1383,6 +1392,7 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 		status->flags = A_MPDU_STATUS_LAST_KNOWN || A_MPDU_STATUS_DELIMITER_CRC_KNOWN;
 	}
 
+	// we are building a normal frame (non-aggregated one)
 	if(numFrames==0)
 	{
 		// Build the 802.11 header
@@ -1510,9 +1520,12 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 		udph->check = checksum( (uint8_t*) pseudogram , psize);
 		free(pseudogram);
 
-	} else {	// numFrames!=0
+	}
 
-		for(int i = 0; i<numFrames; i++)
+	// we are building a A-MPDU. Defined in page 812 of IEEE 802.11-2012
+	else {	// numFrames!=0
+
+		for(int i = 0; i<numFrames; i++)	//for every subframe
 		{
 
 			assert( remainingBytes >= sizeof(struct mpdu_delimiter));
@@ -1521,8 +1534,17 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 			remainingBytes -= sizeof(*delim);
 
 			printf("Frame #%i. MPDU size: %i bytes\n", i+1, MPDUsize);
-			uint16_t aux = 0x4004;//MPDUsize/8 & 0x0fff;
-			printf("%04x\n", aux);
+			// uint16_t aux = 0x4004;// MPDUsize/8 & 0x0fff; //POSSIBLE ERROR HERE?
+			uint16_t aux = htons (MPDUsize & 0x0fff); // the operation & 0x0fff is for making the first 4 bits be 0
+					// QUESTION: Should we use htons or not???
+
+			printf("aux = %04x\n", aux);
+			
+			// add the A-MPDU delimiter
+			// - reserved
+			// - MPDU length
+			// - CRC
+			// - Delimiter signature
 			delim->reservedAndLength = htons(aux);
 			uint8_t crc = 0xff;
 			crc8(&crc, ((delim->reservedAndLength&0xff00)>>8));
@@ -1620,7 +1642,7 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 			u_int32_t destination_address = htonl((((0x00000000 | *dstIP<<24) | *(dstIP+1)<<16) | *(dstIP+2)<<8) | *(dstIP+3));
 			sin.sin_addr.s_addr = destination_address;
  
-			//Fill in the IP Header
+			// Fill in the IP Header
 			iph->ihl = 5;
 			iph->version = 4;
 			iph->tos = 0x00;
@@ -1633,16 +1655,16 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 			iph->saddr = source_address;	//Spoof the source ip address
 			iph->daddr = destination_address;
 
-			//Ip checksum
+			// IP checksum
 			iph->check = checksum((uint8_t*) iph, iph->tot_len);
 	
-			//UDP header
+			// UDP header
 			udph->source = htons (6666);
 			udph->dest = htons (8622);
 			udph->len = htons(sizeof(struct udphdr) + strlen(data)); //udp header size
 			udph->check = 0; //leave checksum 0 now, filled later by pseudo header
 	
-			//Now the UDP checksum using the pseudo header
+			// Now add the UDP checksum using the pseudo header
 			psh.source_address = source_address;
 			psh.dest_address = destination_address;
 			psh.placeholder = 0;
@@ -2095,11 +2117,13 @@ int main(int argc, char *argv[])
 								//packet_hexdump( (const uint8_t*) ACKPacket, ACKLength );
 								free(ACKPacket);*/
 							
-								for(int i=0; i<numPcks; i++){
+								for(int i=0; i<numPcks; i++) {
 									// Construct and send A-MPDU
 									printf("##### Data Packet %i\n", i+1);
+
+									// Create the frame
 									uint8_t* dataPacket = (uint8_t*) malloc( dataLength );
-									constructDataPacket(	dataPacket,
+									constructDataPacket (	dataPacket,
 															dataRate, 
 															channel, 
 															accessPoints[0], 
@@ -2109,6 +2133,8 @@ int main(int argc, char *argv[])
 															frame->i_addr2, 
 															numFrames, 
 															numCharDatagram);
+
+									// Send the frame
 									bytes = write(rawSocket, dataPacket, dataLength);
 									assert(bytes== (ssize_t) dataLength);
 									//packet_hexdump( (const uint8_t*) dataPacket, dataLength);
