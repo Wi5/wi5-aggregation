@@ -1537,6 +1537,7 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 			// uint16_t aux = 0x4004;// MPDUsize/8 & 0x0fff; //POSSIBLE ERROR HERE?
 			uint16_t aux = htons (MPDUsize & 0x0fff); // the operation & 0x0fff is for making the first 4 bits be 0
 					// QUESTION: Should we use htons or not???
+					//uint16_t aux = MPDUsize & 0x0fff; // the operation & 0x0fff is for making the first 4 bits be 0
 
 			printf("aux = %04x\n", aux);
 			
