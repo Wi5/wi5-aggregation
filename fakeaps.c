@@ -1316,8 +1316,15 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 	int zeropadding = 0;
 
 	// Calculate the size of an MPDU
-	int MPDUsize = sizeof(struct ieee80211_qosframe)+sizeof(struct llc)+sizeof(struct snap)+sizeof(struct iphdr)+sizeof(struct udphdr)+numCharDatagram*sizeof(char);
+	int MPDUsize =	sizeof(struct ieee80211_qosframe) + 
+					sizeof(struct llc) +
+					sizeof(struct snap) +
+					sizeof(struct iphdr) +
+					sizeof(struct udphdr) +
+					numCharDatagram*sizeof(char);
 	printf("MPDU size: %d bytes\n", MPDUsize);
+
+	// check if a padding is required (if the size of the MPDU is not a multiple of 4)
 	if((MPDUsize%4)!=0)
 	{
 		zeropadding = (4-(MPDUsize%4));
@@ -1329,10 +1336,10 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 	size_t remainingBytes = *DataLength;
 
 	// Add the radiotap header
-	assert( remainingBytes >= sizeof(struct ieee80211_radiotap_header) );  // TO BE REMOVED. RADIOTAP HEADER DOES NOT COUNT
+	assert( remainingBytes >= sizeof(struct ieee80211_radiotap_header) );
 	struct ieee80211_radiotap_header* radiotap = (struct ieee80211_radiotap_header*) packet;
 	uint8_t* packetIterator = packet + sizeof(*radiotap);
-	remainingBytes -= sizeof(*radiotap); // TO BE REMOVED. RADIOTAP HEADER DOES NOT COUNT
+	remainingBytes -= sizeof(*radiotap);
 
 	radiotap->it_version = 0;
 	radiotap->it_len = sizeof(*radiotap) + sizeof(dataRate);
@@ -1348,7 +1355,7 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 	assert( remainingBytes >= sizeof(dataRate) );
 	*packetIterator = (dataRate & IEEE80211_RATE_VAL);
 	packetIterator ++;
-	remainingBytes -= sizeof(dataRate);  // TO BE REMOVED. RADIOTAP HEADER DOES NOT COUNT
+	remainingBytes -= sizeof(dataRate);
 
 	if(numFrames!=0) {
 		
@@ -1359,7 +1366,7 @@ void constructDataPacket (uint8_t* packet, uint8_t dataRate, uint8_t channel, co
 		assert ( remainingBytes >= sizeof(struct ampdu_status) );
 		struct ampdu_status* status = (struct ampdu_status*) packetIterator;
 		packetIterator += sizeof(*status);
-		remainingBytes -= sizeof(*status);  // TO BE REMOVED. RADIOTAP HEADER DOES NOT COUNT
+		remainingBytes -= sizeof(*status);
 
 		status->reference = mpduseq;
 		mpduseq ++;
@@ -1788,7 +1795,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	// Read the size of each packet QUESTION: with 500 bytes it works, but not with 50
+	// Read the size of each packet
 	int packet_size = atoi(argv[3]);
 
 	// Read the number of frames to be included in each A-MPDU
@@ -2001,7 +2008,6 @@ int main(int argc, char *argv[])
 							//packet_hexdump( (const uint8_t*) ACKPacket, ACKLength );
 							free(ACKPacket);*/
 						
-						
 							uint8_t* authPacket = (uint8_t*) malloc( authLength );
 							constructAuthResponse(authPacket ,dataRate, channel, accessPoints[0], &authLength, frame->i_addr2 );
 							bytes = write( rawSocket, authPacket, authLength);
@@ -2010,12 +2016,11 @@ int main(int argc, char *argv[])
 							//packet_hexdump((const uint8_t*) authPacket, authLength);
 							free(authPacket);
 						}
-				
-
 					}
+
+					// We received an Association Request QUESTION what is the difference?
 					else if( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
 						(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_ASSOC_REQ )
-						// We received an Association Request QUESTION what is the difference?
 					{
 						/*uint8_t* ACKpacket = (uint8_t*) malloc( ACKLength );
 						constructACKPacket(ACKPacket, dataRate, channel, accessPoints[0], &ACKLength, frame->i_addr2);
@@ -2033,6 +2038,7 @@ int main(int argc, char *argv[])
 						//packet_hexdump( (const uint8_t*) assoPacket, assoLength);
 						free(assoPacket);
 
+						// The number of sub-frames is not null, so I have to build an A-MPDU
 						if(numFrames!=0)
 						{
 							uint8_t* ADDBAPacket = (uint8_t*) malloc( addBALength );
@@ -2043,13 +2049,24 @@ int main(int argc, char *argv[])
 							//packet_hexdump( (const uint8_t*) ADDBAPacket, addBALength);
 							free(ADDBAPacket);
 						}
-						else{
+
+						// The number of frames is 0, which means that only an MPDU must me sent
+						else {
 							for(int i=0; i<numPcks; i++)
 							{
-								// Construct and send A-MPDU
+								// Construct and send an MPDU
 								printf("##### Data Packet %i\n", i+1);
 								uint8_t* dataPacket = (uint8_t*) malloc( dataLengthWithoutAggr );
-								constructDataPacket(dataPacket, dataRate, channel, accessPoints[0], &dataLengthWithoutAggr, sourceIP, dstIP ,frame->i_addr2, 0, numCharDatagram); //QUESTION
+								constructDataPacket(	dataPacket, 
+														dataRate, 
+														channel, 
+														accessPoints[0], 
+														&dataLengthWithoutAggr, 
+														sourceIP, 
+														dstIP,
+														frame->i_addr2, 
+														0, 
+														numCharDatagram); //QUESTION
 								bytes = write(rawSocket, dataPacket, dataLengthWithoutAggr);
 								assert(bytes== (ssize_t) dataLengthWithoutAggr);
 								//packet_hexdump( (const uint8_t*) dataPacket, dataLengthWithoutAggr);
@@ -2065,7 +2082,8 @@ int main(int argc, char *argv[])
 						packetIterator += sizeof(struct ieee80211_frame);
 						struct ieee80211_addba_response* addbaResponseFrame = (struct ieee80211_addba_response*)( packetIterator );
 
-						if(addbaResponseFrame->category == IEEE80211_CATEG_BA && addbaResponseFrame->actionCode == IEEE80211_ACTION_ADDBA_RESP) //I check if the received frame is an ADDBA Response
+						//I check if the received frame is an ADDBA Response, which means that I can send A-MPDUs
+						if(addbaResponseFrame->category == IEEE80211_CATEG_BA && addbaResponseFrame->actionCode == IEEE80211_ACTION_ADDBA_RESP)
 						{
 							if(addbaResponseFrame->status == 0) // I check the status to know if the receiver can send Block Ack
 							{ 
@@ -2081,7 +2099,16 @@ int main(int argc, char *argv[])
 									// Construct and send A-MPDU
 									printf("##### Data Packet %i\n", i+1);
 									uint8_t* dataPacket = (uint8_t*) malloc( dataLength );
-									constructDataPacket(dataPacket ,dataRate, channel, accessPoints[0], &dataLength, sourceIP, dstIP ,frame->i_addr2, numFrames, numCharDatagram);
+									constructDataPacket(	dataPacket,
+															dataRate, 
+															channel, 
+															accessPoints[0], 
+															&dataLength, 
+															sourceIP, 
+															dstIP ,
+															frame->i_addr2, 
+															numFrames, 
+															numCharDatagram);
 									bytes = write(rawSocket, dataPacket, dataLength);
 									assert(bytes== (ssize_t) dataLength);
 									//packet_hexdump( (const uint8_t*) dataPacket, dataLength);
@@ -2097,18 +2124,19 @@ int main(int argc, char *argv[])
 									free(BARPacket);
 									printf("\n");
 								}
-
-							} else	{
+							}
+							// the receiver can send Block Ack
+							else {
 								perror("Device unable to perform frame aggregation");
 							}
 						}
 					}
 				}
 			} else {
-			}			
+			}
 		} else {
 
-			// We should only have 1 or 0 fds ready
+			// We should only have 1 or 0 fds (File descriptors) ready
 			assert( numFds == 0 );
 		}
 			
@@ -2141,16 +2169,11 @@ int main(int argc, char *argv[])
 			}
 			free(beaconPacket);
 
-			
 			// Increment the next beacon time until it is in the future
 			do {
 				incrementTimeval( &beaconTime, BEACON_INTERVAL );
 			} while( compareTimeval( &beaconTime, &now ) <= 0 );
 		}
-		
-		
-		
 	}
-	
 	close( rawSocket );
 }
