@@ -1,6 +1,4 @@
 /**
-UNDER CONSTRUCTION
-
 Code taken from the following website:
 
 http://www.evanjones.ca/software/fakeaps.c
@@ -10,7 +8,7 @@ Thanks to Evan Jones for his work.
 And used to implement the authentication, association. And finally our purpose is to implement frame aggregation (A-MPDU).
 This changes will be made by Cristian Hernandez.
 
-TO USE IT YOU NEED A NETWORK DRIVER THAT SUPPORT RADIOTAP, OTHERWISE IT WON'T WORK AS EXPECTED
+TO USE IT YOU NEED A NETWORK DRIVER THAT SUPPORTS RADIOTAP, OTHERWISE IT WILL NOT WORK AS EXPECTED
 
 Fake Access Points using Atheros wireless cards in Linux
 Written by Evan Jones <ejones@uwaterloo.ca>
@@ -1532,13 +1530,13 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 			packetIterator += sizeof(*delim);
 			remainingBytes -= sizeof(*delim);
 
-			printf("Frame #%i. MPDU size: %i bytes\n", i+1, MPDUsize);
+			printf("Sub-frame #%i: MPDU size: %i bytes\n", i+1, MPDUsize);
 			// uint16_t aux = 0x4004;// MPDUsize/8 & 0x0fff; //POSSIBLE ERROR HERE?
 			uint16_t aux = htons (MPDUsize & 0x0fff); // the operation & 0x0fff is for making the first 4 bits be 0
 					// QUESTION: Should we use htons or not???
 					//uint16_t aux = MPDUsize & 0x0fff; // the operation & 0x0fff is for making the first 4 bits be 0
 
-			printf("aux = %04x\n", aux);
+			// printf("aux = %04x\n", aux);
 			
 			// add the A-MPDU delimiter
 			// - reserved
@@ -1550,9 +1548,9 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 			crc8(&crc, ((delim->reservedAndLength&0xff00)>>8));
 			crc8(&crc, (delim->reservedAndLength&0x00ff));
 			delim->crc = 0x47;
-			printf("%02x\n", delim->crc);
+			//printf("%02x\n", delim->crc);
 			delim->delimiterSignature = 0x4E;
-			printf("%02x\n", delim->delimiterSignature);
+			//printf("%02x\n", delim->delimiterSignature);
 
 			assert( remainingBytes >= sizeof(struct ieee80211_qosframe) );
 			struct ieee80211_qosframe* dot80211 = (struct ieee80211_qosframe*) packetIterator;
@@ -1599,7 +1597,7 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 			remainingBytes -= sizeof(*llchdr);
 
 			llchdr->DSAP = 0xAA;		// destination SAP (Service Access Point)
-										// AA means 'SNAP Extension Used'
+							// AA means 'SNAP Extension Used'
 			llchdr->SSAP = 0xAA;		// source SAP (Service Access Point)
 			llchdr->control = 0x03;
 
@@ -1610,12 +1608,12 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 			remainingBytes -= sizeof(*snaphdr);
 
 			snaphdr->OID1 = 0x0000;		// 3-octet IEEE Organizationally Unique Identifier (OUI) 
-										// followed by a 2-octet protocol ID. If the OUI is hexadecimal 000000, 
-										// the protocol ID is the Ethernet type (EtherType) field value for 
-										// the protocol running on top of SNAP
+							// followed by a 2-octet protocol ID. If the OUI is hexadecimal 000000, 
+							// the protocol ID is the Ethernet type (EtherType) field value for 
+							// the protocol running on top of SNAP
 			snaphdr->OID2 = 0x00;
 			snaphdr->protocolID = htons(0x0800);	// 0x0800 means Internet Protocol version 4 (IPv4)
-													// see https://en.wikipedia.org/wiki/EtherType
+								// see https://en.wikipedia.org/wiki/EtherType
 
 			char *pseudogram;
 
@@ -1783,6 +1781,7 @@ static const size_t BEACON_TIMESTAMP_OFFSET = sizeof( struct ieee80211_frame );
 void help()
 {
 	printf( "fakeaps [raw device name (e.g. 'wlan0')] [802.11 channel] [Packet size at IP level] [number of frames in each A-MPDU (0 means 'no frame aggregation')] [number of A-MPDUs to send] [destination IP address using (.)] [destination MAC address using (:)]\n" );
+	printf( "NOTE: if the 'number of frames in each A-MPDU' is 0, then the 'number of A-MPDUs to send' will be the number of frames"); 
 }
 
 
@@ -2003,18 +2002,20 @@ int main(int argc, char *argv[])
 				// NOTE: This frame structure is larger than some packet types, so only read the initial bytes
 				struct ieee80211_frame* frame = (struct ieee80211_frame*)( packetIterator );
 
-
-			
-				if(*frame->i_addr2 == dstMAC[0] && *(frame->i_addr2+1) == dstMAC[1] && *(frame->i_addr2+2) == dstMAC[2] && *(frame->i_addr2+3) == dstMAC[3] &&
-					*(frame->i_addr2+4) == dstMAC[4] && *(frame->i_addr2+5) == dstMAC[5])
+				// check if the MAC addresses fit with ours
+				if (	*frame->i_addr2 == dstMAC[0] && 
+					*(frame->i_addr2+1) == dstMAC[1] && 
+					*(frame->i_addr2+2) == dstMAC[2] && 
+					*(frame->i_addr2+3) == dstMAC[3] &&
+					*(frame->i_addr2+4) == dstMAC[4] && 
+					*(frame->i_addr2+5) == dstMAC[5])
 				{
-
 					// Check to see if this is a PROBE_REQUEST
 					//assert( (frame->i_fc[0] & IEEE80211_FC0_VERSION_MASK) == IEEE80211_FC0_VERSION_0 ); //Delete to receive other kinds of packets.
-					if ( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
-					(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_PROBE_REQ )
+					if (	(frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
+						(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_PROBE_REQ )
 					{
-						// To get sure that it receive a probe request
+						// To get sure that it received a probe request
 						//printf("Probe Request received\n");
 						//packet_hexdump( (const uint8_t*) frame, remainingBytes );
 
@@ -2032,16 +2033,25 @@ int main(int argc, char *argv[])
 						if ( info->info_length == 0 )
 						{
 							uint8_t* probeResponsePacket = (uint8_t*) malloc( probeResponseLength );
-							constructProbeResponse(probeResponsePacket ,dataRate, channel, accessPoints[0], &probeResponseLength, frame->i_addr2 );
+							// build the probe response
+							constructProbeResponse(	probeResponsePacket ,
+										dataRate, 
+										channel, 
+										accessPoints[0], 
+										&probeResponseLength, 
+										frame->i_addr2 );
+							
+							// send the probe response
 							bytes = write( rawSocket, probeResponsePacket, probeResponseLength);
 							assert(bytes == (ssize_t) probeResponseLength);
 							//printf("Probe response sent\n");
 							//packet_hexdump((const uint8_t*) probeResponsePacket, probeResponseLength);
 							free(probeResponsePacket);
 						}
-						else
-						{
+						else {
+							// it is not a broadcast SSID, so it is unicast
 							// Check if the SSID matches any of ours
+							// If it does, send the response
 							for ( size_t i = 0; i < numAccessPoints; ++ i )
 							{
 								if ( info->info_length == accessPoints[i]->ssidLength && memcmp( info->info, accessPoints[i]->ssid, info->info_length ) == 0 )
@@ -2049,7 +2059,14 @@ int main(int argc, char *argv[])
 									// It does!
 									//printf( "probe for SSID '%.*s'\n", info->info_length, (char*) info->info );
 									uint8_t* probeResponsePacket = (uint8_t*) malloc( probeResponseLength );
-									constructProbeResponse(probeResponsePacket ,dataRate, channel, accessPoints[i], &probeResponseLength, frame->i_addr2 );
+									// build the probe response
+									constructProbeResponse (	probeResponsePacket ,
+													dataRate, 
+													channel, 
+													accessPoints[i], 
+													&probeResponseLength, 
+													frame->i_addr2 );
+									//send the probe response
 									bytes = write( rawSocket, probeResponsePacket, probeResponseLength);
 									assert(bytes == (ssize_t) probeResponseLength);
 									//printf("Probe response sent\n");
@@ -2059,8 +2076,9 @@ int main(int argc, char *argv[])
 								}
 							}
 						}	
-					
 					}
+
+					// Check if it is an Authentication Request
 					else if( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
 						(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_AUTH ) // We received an Authentication Request
 					{
@@ -2078,7 +2096,14 @@ int main(int argc, char *argv[])
 							free(ACKPacket);*/
 						
 							uint8_t* authPacket = (uint8_t*) malloc( authLength );
-							constructAuthResponse(authPacket ,dataRate, channel, accessPoints[0], &authLength, frame->i_addr2 );
+							// build the Authentication Response
+							constructAuthResponse (	authPacket ,
+										dataRate, 
+										channel, 
+										accessPoints[0], 
+										&authLength, 
+										frame->i_addr2 );
+							// send the Authentication Response
 							bytes = write( rawSocket, authPacket, authLength);
 							assert(bytes == (ssize_t) authLength);
 							//printf("Authentication response sent\n");
@@ -2087,7 +2112,7 @@ int main(int argc, char *argv[])
 						}
 					}
 
-					// We received an Association Request QUESTION what is the difference?
+					// Check if it is an Association Request
 					else if( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
 						(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_ASSOC_REQ )
 					{
@@ -2100,18 +2125,36 @@ int main(int argc, char *argv[])
 						free(ACKPacket);*/
 
 						uint8_t* assoPacket = (uint8_t*) malloc( assoLength );
-						constructAssoResponse(assoPacket, dataRate, channel, accessPoints[0], &assoLength, frame->i_addr2);
+						// Build the Association Response
+						constructAssoResponse (	assoPacket, 
+									dataRate, 
+									channel, 
+									accessPoints[0], 
+									&assoLength, 
+									frame->i_addr2);
+						// Send the Association Response
 						bytes = write(rawSocket, assoPacket, assoLength);
 						assert(bytes== (ssize_t) assoLength);
 						//printf("Association Response\n");
 						//packet_hexdump( (const uint8_t*) assoPacket, assoLength);
 						free(assoPacket);
 
-						// The number of sub-frames is not null, so I have to build an A-MPDU
+						// THE STATION IS NOW ASSOCIATED WITH THE AP, SO THE PROCESS TO SEND AMPDUs CAN START NOW
+						// - if numFrames == 0, I will not send AMPDUs, so I can send the traffic now
+						// - if numFrames != 0, I first have to send the ADDBA Request
+
+						// The number of sub-frames is not null, so I have to send an ADDBA Request
 						if(numFrames!=0)
 						{
 							uint8_t* ADDBAPacket = (uint8_t*) malloc( addBALength );
-							constructADDBARequest(ADDBAPacket, dataRate, channel, accessPoints[0], &addBALength, frame->i_addr2);
+							// build the ADDBA Request
+							constructADDBARequest (	ADDBAPacket, 
+										dataRate, 
+										channel, 
+										accessPoints[0], 
+										&addBALength, 
+										frame->i_addr2);
+							// send the ADDBA Request
 							bytes = write(rawSocket, ADDBAPacket, addBALength);
 							assert(bytes == (ssize_t) addBALength);
 							//printf("ADDBA Request sent\n");
@@ -2119,23 +2162,25 @@ int main(int argc, char *argv[])
 							free(ADDBAPacket);
 						}
 
-						// The number of frames is 0, which means that only an MPDU must me sent
+						// The number of frames is 0, which means NO AGGREGATION, i.e. only an MPDU per packet must be sent
+						// if the 'number of frames in each A-MPDU' is 0, then the 'number of A-MPDUs to send' will be the number of frames
 						else {
-							for(int i=0; i<numPcks; i++)
+							for(int i=0; i < numPcks; i++)
 							{
-								// Construct and send an MPDU
-								printf("##### Data Packet %i\n", i+1);
+								// Construct and send a frame with a single MPDU
+								printf("##### Frame #%i\n", i+1);
 								uint8_t* dataPacket = (uint8_t*) malloc( dataLengthWithoutAggr );
 								constructDataPacket(	dataPacket, 
-														dataRate, 
-														channel, 
-														accessPoints[0], 
-														&dataLengthWithoutAggr, 
-														sourceIP, 
-														dstIP,
-														frame->i_addr2, 
-														0, 
-														numCharDatagram); //QUESTION
+											dataRate, 
+											channel, 
+											accessPoints[0], 
+											&dataLengthWithoutAggr, 
+											sourceIP, 
+											dstIP,
+											frame->i_addr2, 
+											0, 
+											numCharDatagram);
+								// send the MPDU
 								bytes = write(rawSocket, dataPacket, dataLengthWithoutAggr);
 								assert(bytes== (ssize_t) dataLengthWithoutAggr);
 								//packet_hexdump( (const uint8_t*) dataPacket, dataLengthWithoutAggr);
@@ -2143,15 +2188,16 @@ int main(int argc, char *argv[])
 							}
 						}				
 					}
+
+					// Check if an Action Frame has been received. ADDBA responses are a subtype of Action Frames
 					else if( (frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_MGT &&
 						(frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == IEEE80211_FC0_SUBTYPE_ACTION )
-						//We received an Action Frame QUESTION
 					{
 
 						packetIterator += sizeof(struct ieee80211_frame);
 						struct ieee80211_addba_response* addbaResponseFrame = (struct ieee80211_addba_response*)( packetIterator );
 
-						//I check if the received frame is an ADDBA Response, which means that I can send A-MPDUs
+						//I check if the received frame is an ADDBA Response, which means that I can now send A-MPDUs
 						if(addbaResponseFrame->category == IEEE80211_CATEG_BA && addbaResponseFrame->actionCode == IEEE80211_ACTION_ADDBA_RESP)
 						{
 							if(addbaResponseFrame->status == 0) // I check the status to know if the receiver can send Block Ack
@@ -2164,22 +2210,23 @@ int main(int argc, char *argv[])
 								//packet_hexdump( (const uint8_t*) ACKPacket, ACKLength );
 								free(ACKPacket);*/
 							
+								// this is repeated 'numPcks' times
 								for(int i=0; i<numPcks; i++) {
 									// Construct and send A-MPDU
-									printf("##### Data Packet %i\n", i+1);
+									printf("##### Multi-frame #%i\n", i+1);
 
 									// Create the frame
 									uint8_t* dataPacket = (uint8_t*) malloc( dataLength );
 									constructDataPacket (	dataPacket,
-															dataRate, 
-															channel, 
-															accessPoints[0], 
-															&dataLength, 
-															sourceIP, 
-															dstIP ,
-															frame->i_addr2, 
-															numFrames, 
-															numCharDatagram);
+												dataRate, 
+												channel, 
+												accessPoints[0], 
+												&dataLength, 
+												sourceIP, 
+												dstIP ,
+												frame->i_addr2, 
+												numFrames, 
+												numCharDatagram);
 
 									// Send the frame
 									bytes = write(rawSocket, dataPacket, dataLength);
