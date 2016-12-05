@@ -68,7 +68,9 @@ http://www.binarytides.com/raw-udp-sockets-c-linux/
 
 #define WLAN_TAG_PARAM_SIZE 512
 
-#define DUMP_ALL_PACKETS 0	// if you set this to 1, all the generated packets will be dump by the screen
+#define DUMP_PACKETS 1	// if you set this to 0, you will see no packets dump
+			//                    1, only the A-MPDUs or the MPDUs (data packets) will be dump
+                        //                    1, all the generated packets will be dump by the screen
 
 #define DEBUG_LEVEL 1	// if you set this to 0 you will not see anything by the screen
 
@@ -1794,7 +1796,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	int dump_all_packets = DUMP_ALL_PACKETS;
+	int dump_packets = DUMP_PACKETS;
 	int debug_level = DEBUG_LEVEL;
 
 	int fd;
@@ -2052,7 +2054,7 @@ int main(int argc, char *argv[])
 							if (debug_level > 0) 
 								printf("Probe response sent\n");
 
-							if (dump_all_packets == true)
+							if (dump_packets == 2)
 								packet_hexdump((const uint8_t*) probeResponsePacket, probeResponseLength);
 							
 							free(probeResponsePacket);
@@ -2082,7 +2084,7 @@ int main(int argc, char *argv[])
 									if (debug_level > 0) 
 										printf("Probe response sent\n");
 
-									if (dump_all_packets == true)
+									if (dump_packets == 2)
 										packet_hexdump((const uint8_t*) probeResponsePacket, probeResponseLength);
 
 									free(probeResponsePacket);
@@ -2124,7 +2126,7 @@ int main(int argc, char *argv[])
 							if (debug_level > 0) 
 								printf("Authentication response sent\n");
 
-							if (dump_all_packets == true)
+							if (dump_packets == 2)
 								packet_hexdump((const uint8_t*) authPacket, authLength);
 
 							free(authPacket);
@@ -2180,7 +2182,7 @@ int main(int argc, char *argv[])
 							if (debug_level > 0) 
 								printf("ADDBA Request sent\n");
 
-							if (dump_all_packets == true)
+							if (dump_packets == 2)
 								packet_hexdump( (const uint8_t*) ADDBAPacket, addBALength);
 
 							free(ADDBAPacket);
@@ -2210,8 +2212,9 @@ int main(int argc, char *argv[])
 								
 								if (debug_level > 0) 
 									printf("Frame sent (not aggregated)\n");
-								// if (dump_all_packets == true)
-								packet_hexdump( (const uint8_t*) dataPacket, dataLengthWithoutAggr);
+								
+								if (dump_packets > 0)
+									packet_hexdump( (const uint8_t*) dataPacket, dataLengthWithoutAggr);
 
 								free(dataPacket);
 							}
@@ -2261,9 +2264,9 @@ int main(int argc, char *argv[])
 									bytes = write(rawSocket, dataPacket, dataLength);
 									assert(bytes== (ssize_t) dataLength);
 
-									if (debug_level > 0)
-										printf (
-									//packet_hexdump( (const uint8_t*) dataPacket, dataLength);
+									if (dump_packets > 0 )
+										packet_hexdump( (const uint8_t*) dataPacket, dataLength);
+
 									free(dataPacket);
 												
 									// Construct and send Block ACK request
@@ -2275,7 +2278,7 @@ int main(int argc, char *argv[])
 									if (debug_level > 0)
 										printf("Block ACK Request %i sent\n", i+1);
 
-									if (dump_all_packets == true)
+									if (dump_packets == 2)
 										packet_hexdump( (const uint8_t*) BARPacket, BARLength);
 
 									free(BARPacket);
