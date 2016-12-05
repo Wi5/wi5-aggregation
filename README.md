@@ -135,6 +135,17 @@ This is the meaning of the parameters:
   - `192.168.7.2`: IP address of the STA that is going to connect. It will be the destination of the A-MPDUs to be sent.
   - `f4:f2:6d:0c:9d:aa`: MAC address of the STA that is going to connect. The MAC is used as a filter. Only this MAC is allowed to connect to the "fake AP".
 
+Therefore, the previous command would do the next things:
+
+- Create a “fake AP” (called by default `ap0`) and start sending beacons in broadcast mode in channel `5`.
+- Wait for the STA with MAC `f4:f2:6d:0c:9d:aa` to connect, and then send `10` A-MPDUs, each of them containing `2` packets of `500` bytes, to the IP address `192.168.7.2`.
+
+**Note**: if the `number of frames in each A-MPDU` is set to `0`, then the `number of A-MPDUs to send` will be the number of frames. For example, the command:
+
+      ./fakeaps wlan0 5 500 0 10 192.168.7.2 f4:f2:6d:0c:9d:aa
+
+will just send `10` MPDUs, each of them containing a packet of `500` bytes.
+
 Prepare the PC acting as the STA:
 
 	iwconfig wlan2 mode managed
