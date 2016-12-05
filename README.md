@@ -13,7 +13,7 @@ Note: TO USE THIS SOFTWARE YOU NEED A NETWORK DRIVER THAT SUPPORTS [RADIOTAP](ht
 These changes are being made by Cristian Hernandez in [University of Zaragoza](http://www.unizar.es), as a part of the H2020 [Wi-5 project](http://www.wi5.eu).
 
 What does this software do?
----------------------------
+===========================
 
 The main purpose of this software is to send a number of Wi-Fi A-MPDUs, with the aim of measuring the savings they provide.
 
@@ -69,7 +69,7 @@ fakeaps.c            STA that connects
 ```
 
 How to use the software (with an example)
------------------------------------------
+=========================================
 
 PC running fakeaps (AP):      `wlan0` IP address `192.168.7.1`; MAC address: `60:e3:27:1d:32:b7`.
 
@@ -106,22 +106,26 @@ The devices are using the `ath9k_htc` driver:
 
 Radiotap headers are used.
 
-Download the files:
+Download the files
+------------------
 
       $ git clone https://github.com/Wi5/wi5-aggregation.git
 
-Compile the software:
+Compile the software
+--------------------
 
       $ gcc --std=gnu99 -Wall -o fakeaps fakeaps.c
 
-Prepare the PC acting as the AP:
+Prepare the PC acting as the AP
+-------------------------------
 
 	iwconfig wlan0 mode monitor
 	ifconfig wlan0 up
 	ifconfig wlan0 192.168.7.1
 	iwconfig wlan0 channel 5
 
-Run the software:
+Run the software
+----------------
 
       ./fakeaps wlan0 5 500 2 10 192.168.7.2 f4:f2:6d:0c:9d:aa
 
@@ -146,21 +150,25 @@ Therefore, the previous command would do the next things:
 
 will just send `10` MPDUs, each of them containing a packet of `500` bytes.
 
-Prepare the PC acting as the STA:
+**Note**: if the `number of frames in each A-MPDU` is set to `1`, then it will send an A-MPDU with a single MPDU, but **with A-MPDU format**.
+
+Prepare the PC acting as the STA
+--------------------------------
 
 	iwconfig wlan2 mode managed
 	ifconfig wlan2 up
 	ifconfig wlan2 192.168.7.2
 	iwconfig wlan2 channel 5
       
-Connect the STA to the AP:
+Connect the STA to the AP
+-------------------------
 
       iwconfig wlan2 essid ap0
       
 After the association of the STA, the software runs all the mechanisms required for sending 10 A-MPDUs (each of them containing 2 packets) to it, and ends.
 
 How to capture the traffic
---------------------------
+==========================
 
 Prepare another interface (in another computer) in monitor mode:
 
