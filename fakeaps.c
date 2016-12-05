@@ -1791,7 +1791,8 @@ static const size_t BEACON_TIMESTAMP_OFFSET = sizeof( struct ieee80211_frame );
 void help()
 {
 	printf( "fakeaps [raw device name (e.g. 'wlan0')] [802.11 channel] [Packet size at IP level] [number of frames in each A-MPDU (0 means 'no frame aggregation')] [number of A-MPDUs to send] [destination IP address using (.)] [destination MAC address using (:)]\n" );
-	printf( "NOTE: if the 'number of frames in each A-MPDU' is 0, then the 'number of A-MPDUs to send' will be the number of frames"); 
+	printf( "NOTE: if the 'number of frames in each A-MPDU' is 0, then the 'number of A-MPDUs to send' will be the number of frames\n"); 
+	printf( "\n");
 }
 
 
