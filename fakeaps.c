@@ -68,6 +68,10 @@ http://www.binarytides.com/raw-udp-sockets-c-linux/
 
 #define WLAN_TAG_PARAM_SIZE 512
 
+#define DUMP_ALL_PACKETS false	// if you set this to true, all the generated packets will be dump by the screen
+
+#define DEBUG_LEVEL 1	// if you set this to 0 you will not see anything by the screen
+
 uint8_t seqnumber[2] = {0, 0};
 uint8_t firstSequence[2] = {0, 0};
 uint32_t mpduseq = 0;
@@ -1693,7 +1697,7 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 		}
 	}
 	assert( remainingBytes == 0 );
-	packet_hexdump( (const uint8_t*) packet, *DataLength );
+	//packet_hexdump( (const uint8_t*) packet, *DataLength );
 }
 
 void constructBARequest (uint8_t* packet, uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* BALength, const uint8_t* destinationMAC)
@@ -1789,6 +1793,9 @@ int main(int argc, char *argv[])
 		help();
 		return 1;
 	}
+
+	bool dump_all_packets = DUMP_ALL_PACKETS;
+	int debug_level = DEBUG_LEVEL;
 
 	int fd;
  	struct ifreq ifr;
@@ -2041,8 +2048,13 @@ int main(int argc, char *argv[])
 							// send the probe response
 							bytes = write( rawSocket, probeResponsePacket, probeResponseLength);
 							assert(bytes == (ssize_t) probeResponseLength);
-							//printf("Probe response sent\n");
-							//packet_hexdump((const uint8_t*) probeResponsePacket, probeResponseLength);
+
+							if (debug_level > 0) 
+								printf("Probe response sent\n");
+
+							if (dump_all_packets == true)
+								packet_hexdump((const uint8_t*) probeResponsePacket, probeResponseLength);
+							
 							free(probeResponsePacket);
 						}
 						else {
@@ -2066,8 +2078,13 @@ int main(int argc, char *argv[])
 									//send the probe response
 									bytes = write( rawSocket, probeResponsePacket, probeResponseLength);
 									assert(bytes == (ssize_t) probeResponseLength);
-									//printf("Probe response sent\n");
-									//packet_hexdump((const uint8_t*) probeResponsePacket, probeResponseLength);
+
+									if (debug_level > 0) 
+										printf("Probe response sent\n");
+
+									if (dump_all_packets == true)
+										packet_hexdump((const uint8_t*) probeResponsePacket, probeResponseLength);
+
 									free(probeResponsePacket);
 									break;
 								}
@@ -2103,8 +2120,13 @@ int main(int argc, char *argv[])
 							// send the Authentication Response
 							bytes = write( rawSocket, authPacket, authLength);
 							assert(bytes == (ssize_t) authLength);
-							//printf("Authentication response sent\n");
-							//packet_hexdump((const uint8_t*) authPacket, authLength);
+
+							if (debug_level > 0) 
+								printf("Authentication response sent\n");
+
+							if (dump_all_packets == true)
+								packet_hexdump((const uint8_t*) authPacket, authLength);
+
 							free(authPacket);
 						}
 					}
@@ -2154,8 +2176,13 @@ int main(int argc, char *argv[])
 							// send the ADDBA Request
 							bytes = write(rawSocket, ADDBAPacket, addBALength);
 							assert(bytes == (ssize_t) addBALength);
-							//printf("ADDBA Request sent\n");
-							//packet_hexdump( (const uint8_t*) ADDBAPacket, addBALength);
+
+							if (debug_level > 0) 
+								printf("ADDBA Request sent\n");
+
+							if (dump_all_packets == true)
+								packet_hexdump( (const uint8_t*) ADDBAPacket, addBALength);
+
 							free(ADDBAPacket);
 						}
 
@@ -2180,7 +2207,12 @@ int main(int argc, char *argv[])
 								// send the MPDU
 								bytes = write(rawSocket, dataPacket, dataLengthWithoutAggr);
 								assert(bytes== (ssize_t) dataLengthWithoutAggr);
-								//packet_hexdump( (const uint8_t*) dataPacket, dataLengthWithoutAggr);
+								
+								if (debug_level > 0) 
+									printf("Frame sent (not aggregated)\n");
+								// if (dump_all_packets == true)
+								packet_hexdump( (const uint8_t*) dataPacket, dataLengthWithoutAggr);
+
 								free(dataPacket);
 							}
 						}				
@@ -2228,6 +2260,9 @@ int main(int argc, char *argv[])
 									// Send the frame
 									bytes = write(rawSocket, dataPacket, dataLength);
 									assert(bytes== (ssize_t) dataLength);
+
+									if (debug_level > 0)
+										printf (
 									//packet_hexdump( (const uint8_t*) dataPacket, dataLength);
 									free(dataPacket);
 												
@@ -2236,23 +2271,31 @@ int main(int argc, char *argv[])
 									constructBARequest(BARPacket, dataRate, channel, accessPoints[0], &BARLength, frame->i_addr2);
 									bytes = write( rawSocket, BARPacket, BARLength);
 									assert( bytes == (ssize_t) BARLength);
-									printf("Block ACK Request %i sent\n", i+1);
-									//packet_hexdump( (const uint8_t*) BARPacket, BARLength);
+
+									if (debug_level > 0)
+										printf("Block ACK Request %i sent\n", i+1);
+
+									if (dump_all_packets == true)
+										packet_hexdump( (const uint8_t*) BARPacket, BARLength);
+
 									free(BARPacket);
 									printf("\n");
 								}
 							}
-							// the receiver can send Block Ack
+
+							// the receiver cannot send Block Ack
 							else {
 								perror("Device unable to perform frame aggregation");
 							}
 						}
 					}
 				}
-			} else {
-			}
-		} else {
+			} 
+			else {
 
+			}
+		} 
+		else {
 			// We should only have 1 or 0 fds (File descriptors) ready
 			assert( numFds == 0 );
 		}
