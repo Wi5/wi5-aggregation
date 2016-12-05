@@ -1328,6 +1328,9 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 				sizeof(struct udphdr) +		// UDP header
 				numCharDatagram*sizeof(char);	// Payload
 
+	struct sockaddr_in sin;
+	struct pseudo_header psh;
+
 	// check if a padding is required (if the size of the MPDU is not a multiple of 4)
 	if((MPDUsize%4)!=0)
 	{
@@ -1470,9 +1473,6 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 		//strcpy(data , "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
 		packetIterator += numCharDatagram*sizeof(char);
 		remainingBytes -= numCharDatagram*sizeof(char);
-
-		struct sockaddr_in sin;
-		struct pseudo_header psh;
 
 		sin.sin_family = AF_INET;
 		sin.sin_port = htons(8080);
@@ -1637,9 +1637,6 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 			//strcpy(data , "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
 			packetIterator += numCharDatagram*sizeof(char);
 			remainingBytes -= numCharDatagram*sizeof(char);
-
-			struct sockaddr_in sin;
-			struct pseudo_header psh;
 
 			sin.sin_family = AF_INET;
 			sin.sin_port = htons(8080);
