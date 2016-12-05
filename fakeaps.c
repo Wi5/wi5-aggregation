@@ -1319,6 +1319,8 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 {
 	static uint32_t cont = 1502;	//QUESTION: what is this?
 
+	int debug_level = DEBUG_LEVEL;
+
 	//int numCharDatagram = 500;
 	//uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
 	// For 802.11b, either 1 or 2 Mbps is the permitted rate for broadcasts
@@ -1407,7 +1409,8 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 		packetIterator += sizeof(*dot80211);
 		remainingBytes -= sizeof(*dot80211);
 
-		printf("MPDU size: %d bytes\n", MPDUsize);
+		if ( debug_level > 0 )
+			printf("MPDU size: %d bytes\n", MPDUsize);
 
 		// ADDBA packet flags
 		dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_QOS;
@@ -1536,7 +1539,9 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 			packetIterator += sizeof(*delim);
 			remainingBytes -= sizeof(*delim);
 
-			printf("Sub-frame #%i: MPDU size: %i bytes\n", i+1, MPDUsize);
+			if ( debug_level > 0 )
+				printf("Sub-frame #%i: MPDU size: %i bytes\n", i+1, MPDUsize);
+
 			// uint16_t aux = 0x4004;// MPDUsize/8 & 0x0fff; //POSSIBLE ERROR HERE?
 			uint16_t aux = htons (MPDUsize & 0x0fff); // the operation & 0x0fff is for making the first 4 bits be 0
 					// QUESTION: Should we use htons or not???
@@ -2194,7 +2199,6 @@ int main(int argc, char *argv[])
 							for(int i=0; i < numPcks; i++)
 							{
 								// Construct and send a frame with a single MPDU
-								printf("##### Frame #%i\n", i+1);
 								uint8_t* dataPacket = (uint8_t*) malloc( dataLengthWithoutAggr );
 								constructDataPacket(	dataPacket, 
 											dataRate, 
@@ -2211,7 +2215,7 @@ int main(int argc, char *argv[])
 								assert(bytes== (ssize_t) dataLengthWithoutAggr);
 								
 								if (debug_level > 0) 
-									printf("Frame sent (not aggregated)\n");
+									printf("##### Frame #%i (not aggregated)\n", i+1);
 								
 								if (dump_packets > 0)
 									packet_hexdump( (const uint8_t*) dataPacket, dataLengthWithoutAggr);
@@ -2245,7 +2249,8 @@ int main(int argc, char *argv[])
 								// this is repeated 'numPcks' times
 								for(int i=0; i<numPcks; i++) {
 									// Construct and send A-MPDU
-									printf("##### Multi-frame #%i\n", i+1);
+									if (debug_level > 0)
+										printf("##### Multi-frame #%i\n", i+1);
 
 									// Create the frame
 									uint8_t* dataPacket = (uint8_t*) malloc( dataLength );
