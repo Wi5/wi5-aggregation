@@ -68,7 +68,7 @@ http://www.binarytides.com/raw-udp-sockets-c-linux/
 
 #define WLAN_TAG_PARAM_SIZE 512
 
-#define DUMP_ALL_PACKETS false	// if you set this to true, all the generated packets will be dump by the screen
+#define DUMP_ALL_PACKETS 0	// if you set this to 1, all the generated packets will be dump by the screen
 
 #define DEBUG_LEVEL 1	// if you set this to 0 you will not see anything by the screen
 
@@ -1794,7 +1794,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	bool dump_all_packets = DUMP_ALL_PACKETS;
+	int dump_all_packets = DUMP_ALL_PACKETS;
 	int debug_level = DEBUG_LEVEL;
 
 	int fd;
