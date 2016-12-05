@@ -2056,7 +2056,7 @@ int main(int argc, char *argv[])
 							bytes = write( rawSocket, probeResponsePacket, probeResponseLength);
 							assert(bytes == (ssize_t) probeResponseLength);
 
-							if (debug_level > 0) 
+							if (debug_level > 1) 
 								printf("Probe response sent\n");
 
 							if (dump_packets == 2)
@@ -2086,7 +2086,7 @@ int main(int argc, char *argv[])
 									bytes = write( rawSocket, probeResponsePacket, probeResponseLength);
 									assert(bytes == (ssize_t) probeResponseLength);
 
-									if (debug_level > 0) 
+									if (debug_level > 1) 
 										printf("Probe response sent\n");
 
 									if (dump_packets == 2)
@@ -2128,7 +2128,7 @@ int main(int argc, char *argv[])
 							bytes = write( rawSocket, authPacket, authLength);
 							assert(bytes == (ssize_t) authLength);
 
-							if (debug_level > 0) 
+							if (debug_level > 1) 
 								printf("Authentication response sent\n");
 
 							if (dump_packets == 2)
@@ -2184,7 +2184,7 @@ int main(int argc, char *argv[])
 							bytes = write(rawSocket, ADDBAPacket, addBALength);
 							assert(bytes == (ssize_t) addBALength);
 
-							if (debug_level > 0) 
+							if (debug_level > 1) 
 								printf("ADDBA Request sent\n");
 
 							if (dump_packets == 2)
