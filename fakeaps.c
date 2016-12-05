@@ -1032,7 +1032,6 @@ void constructAuthResponse (uint8_t* packet, uint8_t dataRate, uint8_t channel, 
 
 void constructAssoResponse (uint8_t* packet, uint8_t dataRate, uint8_t channel, const struct AccessPointDescriptor* apDescription, size_t* assoLength, const uint8_t* destinationMAC)
 {
-
 	static uint8_t cont_AID = 1;
 	//uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
 	// For 802.11b, either 1 or 2 Mbps is the permitted rate for broadcasts
@@ -1086,7 +1085,7 @@ void constructAssoResponse (uint8_t* packet, uint8_t dataRate, uint8_t channel, 
 	if(seqnumber[0]<0xf0)
 	{
 		seqnumber[0] += (1<<4);
-	}else{
+	} else {
 		seqnumber[0]=0;
 		seqnumber[1]++;
 	}
@@ -1269,7 +1268,7 @@ void constructADDBARequest (uint8_t* packet, uint8_t dataRate, uint8_t channel, 
 	if(seqnumber[0]<0xf0)
 	{
 		seqnumber[0] += (1<<4);
-	}else{
+	} else {
 		seqnumber[0]=0;
 		seqnumber[1]++;
 	}
@@ -1304,17 +1303,17 @@ void constructADDBARequest (uint8_t* packet, uint8_t dataRate, uint8_t channel, 
 }
 
 void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are going to build. It contains a header and a number of sub-frames
-												// this is the result returned by this function
-							uint8_t dataRate, 
-							uint8_t channel, 
-							const struct AccessPointDescriptor* apDescription, 
-							size_t* DataLength, uint8_t* sourceIP, 
-							uint8_t* dstIP,					// destination IP address
-							const uint8_t* destinationMAC,	// destination MAC address
-							uint8_t numFrames,				// number of sub-frames
-							int numCharDatagram )
+							// this is the result returned by this function
+				uint8_t dataRate, 
+				uint8_t channel, 
+				const struct AccessPointDescriptor* apDescription, 
+				size_t* DataLength, uint8_t* sourceIP, 
+				uint8_t* dstIP,				// destination IP address
+				const uint8_t* destinationMAC,		// destination MAC address
+				uint8_t numFrames,			// number of sub-frames
+				int numCharDatagram )
 {
-	static uint32_t cont = 1502;	//QUESTION
+	static uint32_t cont = 1502;	//QUESTION: what is this?
 
 	//int numCharDatagram = 500;
 	//uint8_t dataRateValue = (dataRate & IEEE80211_RATE_VAL);
@@ -1324,12 +1323,12 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 	int zeropadding = 0;
 
 	// Calculate the size of an MPDU
-	int MPDUsize =	sizeof(struct ieee80211_qosframe) + 
-					sizeof(struct llc) +
-					sizeof(struct snap) +
-					sizeof(struct iphdr) +			// IP header
-					sizeof(struct udphdr) +			// UDP header
-					numCharDatagram*sizeof(char);	// Payload
+	int MPDUsize =	sizeof(	struct ieee80211_qosframe) + 
+				sizeof(struct llc) +		// LLC header
+				sizeof(struct snap) +		// SNAP header
+				sizeof(struct iphdr) +		// IP header
+				sizeof(struct udphdr) +		// UDP header
+				numCharDatagram*sizeof(char);	// Payload
 
 	// check if a padding is required (if the size of the MPDU is not a multiple of 4)
 	if((MPDUsize%4)!=0)
@@ -1585,7 +1584,7 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 			if(seqnumber[0]<0xf0)
 			{
 				seqnumber[0] += (1<<4);
-			}else{
+			} else {
 				seqnumber[0]=0;
 				seqnumber[1]++;
 			}
@@ -1593,23 +1592,30 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 			dot80211->i_qos[0] = 0x00;
 			dot80211->i_qos[1] = 0x00;
 
+			// Add the LLC header. see https://en.wikipedia.org/wiki/IEEE_802.2
 			assert(remainingBytes >= sizeof(struct llc) );
 			struct llc* llchdr = (struct llc*) packetIterator;
 			packetIterator += sizeof(*llchdr);
 			remainingBytes -= sizeof(*llchdr);
 
-			llchdr->DSAP = 0xAA;
-			llchdr->SSAP = 0xAA;
+			llchdr->DSAP = 0xAA;		// destination SAP (Service Access Point)
+										// AA means 'SNAP Extension Used'
+			llchdr->SSAP = 0xAA;		// source SAP (Service Access Point)
 			llchdr->control = 0x03;
 
+			// Add the SNAP header. see https://en.wikipedia.org/wiki/Subnetwork_Access_Protocol
 			assert(remainingBytes >= sizeof(struct snap) );
 			struct snap* snaphdr = (struct snap*) packetIterator;
 			packetIterator += sizeof(*snaphdr);
 			remainingBytes -= sizeof(*snaphdr);
 
-			snaphdr->OID1 = 0x0000;
+			snaphdr->OID1 = 0x0000;		// 3-octet IEEE Organizationally Unique Identifier (OUI) 
+										// followed by a 2-octet protocol ID. If the OUI is hexadecimal 000000, 
+										// the protocol ID is the Ethernet type (EtherType) field value for 
+										// the protocol running on top of SNAP
 			snaphdr->OID2 = 0x00;
-			snaphdr->protocolID = htons(0x0800);
+			snaphdr->protocolID = htons(0x0800);	// 0x0800 means Internet Protocol version 4 (IPv4)
+													// see https://en.wikipedia.org/wiki/EtherType
 
 			char *pseudogram;
 
@@ -1791,8 +1797,10 @@ int main(int argc, char *argv[])
 	int fd;
  	struct ifreq ifr;
  	fd = socket(AF_INET, SOCK_DGRAM, 0);
+
  	/* I want to get an IPv4 IP address */
  	ifr.ifr_addr.sa_family = AF_INET;
+
  	/* I want IP address attached to the selected interface */
  	strncpy(ifr.ifr_name, argv[1], IFNAMSIZ-1);
  	ioctl(fd, SIOCGIFADDR, &ifr);
@@ -1818,13 +1826,13 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	// Read the size of each packet
+	// Read the size of each packet at IP level (including IP header)
 	int packet_size = atoi(argv[3]);
 
 	// Read the number of frames to be included in each A-MPDU
 	uint8_t numFrames = atoi(argv[4]);
 
-	// Read the number of A-MPDUS to be sent
+	// Read the number of A-MPDUs to be sent
 	uint8_t numPcks = atoi(argv[5]);
 
 	// Define the data rate (in multiples of 500kbps. e.g. 108 means 54Mbps)
@@ -1833,52 +1841,90 @@ int main(int argc, char *argv[])
 	// Read the name of the local wireless device to use
 	const char* device = argv[1];
 
-	// Construct the beacon packets
+	// Construct the beacon frames
 	// Packet size: radiotap header + 1 byte for rate + ieee80211_frame header + beacon info + tags
 	size_t beaconLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_beacon) +
 	// SSID, rates, channel
 	sizeof(struct ieee80211_info_element)*7 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel) + sizeof(struct HTCapabilities) +
 	IEEE80211_EXTENDED_RATES_LENGTH + sizeof(struct HTInfo) + sizeof(struct vendor);
 
+	// Construct the probe response
 	size_t probeResponseLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_beacon) +
 	// SSID, rates, channel
 	sizeof(struct ieee80211_info_element)*7 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel) + sizeof(struct HTCapabilities) +
 	IEEE80211_EXTENDED_RATES_LENGTH + sizeof(struct HTInfo) + sizeof(struct vendor);
 
+	// Construct the ACK
 	//size_t ACKLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame_ack);
 	size_t authLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_authentication);
 	size_t assoLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_association_response) +
 	// SSID, rates, channel
 	sizeof(struct ieee80211_info_element)*7 + accessPoints[0]->ssidLength + accessPoints[0]->dataRatesLength + sizeof(channel)  + sizeof(struct HTCapabilities) +
 	IEEE80211_EXTENDED_RATES_LENGTH + sizeof(struct HTInfo) + sizeof(struct vendor);
+
+	// Construct the AddBA
 	size_t addBALength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_frame) + sizeof(struct ieee80211_addba_request) +
+	
 	// SSID
 	sizeof(struct ieee80211_info_element) + accessPoints[0]->ssidLength;
 
-	int numCharDatagram = packet_size - 28; //IP length - IP Header -UDP Header
+	// Calculate the size of the payload
+	int numCharDatagram = packet_size - sizeof(struct iphdr) - sizeof(struct udphdr); //Total IP length - IP Header -UDP Header
 	int zeropadding = 0;
 
-	int MPDUsize = sizeof(struct ieee80211_qosframe)+sizeof(struct llc)+sizeof(struct snap)+sizeof(struct iphdr)+sizeof(struct udphdr)+numCharDatagram*sizeof(char);
+	int MPDUsize =	sizeof(struct ieee80211_qosframe)+
+			sizeof(struct llc)+
+			sizeof(struct snap)+
+			sizeof(struct iphdr)+
+			sizeof(struct udphdr)+
+			numCharDatagram*sizeof(char);
 
+	// Add the padding if needed
 	if((MPDUsize%4)!=0)
 	{
 		zeropadding = (4-(MPDUsize%4));
 		MPDUsize += zeropadding;
 	}
 
-	size_t dataLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + numFrames*(sizeof(struct mpdu_delimiter) + zeropadding) +
-	sizeof(struct ieee80211_qosframe) + sizeof(struct llc) + sizeof(struct snap) + sizeof(struct iphdr) + sizeof(struct udphdr) + numCharDatagram*sizeof(char);
+	// If numFrames == 0 this means that I am sending normal frames. QUESTION: is this comment correct?
+	size_t dataLength =	sizeof(struct ieee80211_radiotap_header) + 
+				sizeof(dataRate) + 
+				numFrames*(sizeof(struct mpdu_delimiter) + zeropadding) +
+				sizeof(struct ieee80211_qosframe) + 
+				sizeof(struct llc) + 
+				sizeof(struct snap) + 
+				sizeof(struct iphdr) + 
+				sizeof(struct udphdr) + 
+				numCharDatagram*sizeof(char);
 
+	// If numFrames !=0, I have to add the length of the A-MPDU specific fields. QUESTION: is this comment correct?
 	if (numFrames!=0)
 	{
-		dataLength += (16-(sizeof(dataRate)%16)) + sizeof(struct ampdu_status) + (numFrames-1)*(sizeof(struct ieee80211_qosframe) + sizeof(struct llc) +
-		sizeof(struct snap) + sizeof(struct iphdr) + sizeof(struct udphdr) + numCharDatagram*sizeof(char));
+		dataLength +=	(16-(sizeof(dataRate)%16)) + 
+				sizeof(struct ampdu_status) + 
+				(numFrames-1)*(sizeof(struct ieee80211_qosframe) + 
+				sizeof(struct llc) +
+				sizeof(struct snap) + 
+				sizeof(struct iphdr) + 
+				sizeof(struct udphdr) + 
+				numCharDatagram*sizeof(char));
 	}
 
-	size_t dataLengthWithoutAggr = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_qosframe) +
-	sizeof(struct llc) + sizeof(struct snap) + sizeof(struct iphdr) + sizeof(struct udphdr) + numCharDatagram*sizeof(char);
+	// Length of a data frame if no aggregation is used
+	size_t dataLengthWithoutAggr =	sizeof(struct ieee80211_radiotap_header) + 
+					sizeof(dataRate) + 
+					sizeof(struct ieee80211_qosframe) +
+					sizeof(struct llc) + 
+					sizeof(struct snap) + 
+					sizeof(struct iphdr) + 
+					sizeof(struct udphdr) + 
+					numCharDatagram*sizeof(char);
 
-	size_t BARLength = sizeof(struct ieee80211_radiotap_header) + sizeof(dataRate) + sizeof(struct ieee80211_baframe) + sizeof(struct ieee80211_ba_request);
+	// Size of the Block ACK Request
+	size_t BARLength =	sizeof(struct ieee80211_radiotap_header) + 
+				sizeof(dataRate) + 
+				sizeof(struct ieee80211_baframe) + 
+				sizeof(struct ieee80211_ba_request);
 
 	// Open the raw device
 	int rawSocket = openSocket( device );
