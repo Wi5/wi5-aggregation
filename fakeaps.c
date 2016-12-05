@@ -1338,7 +1338,7 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 		MPDUsize += zeropadding;
 	}
 
-	printf("MPDU size (including padding): %d bytes\n", MPDUsize);
+	// printf("MPDU size (including padding): %d bytes\n", MPDUsize);
 
 	assert( packet != NULL );
 
@@ -1400,13 +1400,15 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 		struct ieee80211_qosframe* dot80211 = (struct ieee80211_qosframe*) packetIterator;
 		packetIterator += sizeof(*dot80211);
 		remainingBytes -= sizeof(*dot80211);
-	
+
+		printf("MPDU size: %d bytes\n", MPDUsize);
+
 		// ADDBA packet flags
 		dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_QOS;
 		//printf("%i\n", *dot80211->i_fc);
 		dot80211->i_fc[1] = IEEE80211_FC1_DIR_FROMDS;
 		//printf("%i\n", *dot80211->i_fc);
-		//Add by CHdezFdez as an example
+
 		dot80211->i_dur[0] = 0x00;
 		dot80211->i_dur[1] = 0x00;
 		// Destination 
@@ -1516,7 +1518,6 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 
 		udph->check = checksum( (uint8_t*) pseudogram , psize);
 		free(pseudogram);
-
 	}
 
 	// we are building a A-MPDU. Defined in page 812 of IEEE 802.11-2012
@@ -1524,7 +1525,6 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 
 		for(int i = 0; i<numFrames; i++)	//for every subframe
 		{
-
 			assert( remainingBytes >= sizeof(struct mpdu_delimiter));
 			struct mpdu_delimiter* delim = (struct mpdu_delimiter*) packetIterator;
 			packetIterator += sizeof(*delim);
