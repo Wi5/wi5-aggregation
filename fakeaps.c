@@ -70,9 +70,13 @@ http://www.binarytides.com/raw-udp-sockets-c-linux/
 
 #define DUMP_PACKETS 1	// if you set this to 0, you will see no packets dump
 			//                    1, only the A-MPDUs or the MPDUs (data packets) will be dump
-                        //                    1, all the generated packets will be dump by the screen
+                        //                    2, all the generated packets will be dump by the screen
 
-#define DEBUG_LEVEL 1	// if you set this to 0 you will not see anything by the screen
+#define DEBUG_LEVEL 1	// if you set this to 0, you will not see anything by the screen
+			//                    1, you will see a message when a data frame or a block ACK is sent
+			//                    2, you will see a message every time a frame is sent
+
+#define SSID_NAME ap0	// this is the name of the SSID that will be announced by the fake AP
 
 uint8_t seqnumber[2] = {0, 0};
 uint8_t firstSequence[2] = {0, 0};
@@ -1773,7 +1777,7 @@ void constructBARequest (uint8_t* packet, uint8_t dataRate, uint8_t channel, con
 // ADD MORE ACCESS POINTS HERE, IF YOU WANT
 static struct AccessPointDescriptor ap0 = {
 	{ 0x60, 0xe3, 0x27, 0x1d, 0x32, 0xb7 },
-	(const uint8_t*) "ap0", 3,
+	(const uint8_t*) "SSID_NAME", 3,
 	IEEE80211_DEFAULT_RATES, IEEE80211_DEFAULT_RATES_LENGTH,
 };
 
