@@ -1319,7 +1319,7 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 				uint8_t numFrames,			// number of sub-frames
 				int numCharDatagram )
 {
-	static uint32_t cont = 1502;	//QUESTION: what is this?
+	static uint32_t cont = 1502;	// This is a random number for the ID field of the IP header
 
 	int debug_level = DEBUG_LEVEL;
 
@@ -1442,6 +1442,8 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 
 		dot80211->i_qos[0] = 0x00;
 		dot80211->i_qos[1] = 0x00;
+
+		// QUESTION: Do we have to add HT Ctl here?
 
 		// Add LLC header
 		assert(remainingBytes >= sizeof(struct llc) );
@@ -1790,7 +1792,7 @@ static const size_t BEACON_TIMESTAMP_OFFSET = sizeof( struct ieee80211_frame );
 
 void help()
 {
-	printf( "fakeaps [raw device name (e.g. 'wlan0')] [802.11 channel] [Packet size at IP level] [number of frames in each A-MPDU (0 means 'no frame aggregation')] [number of A-MPDUs to send] [destination IP address using (.)] [destination MAC address using (:)]\n" );
+	printf( "fakeaps [raw device name (e.g. 'wlan0')] [802.11 channel] [Packet size at IP level (should be 28 or more)] [number of frames in each A-MPDU (0 means 'no frame aggregation')] [number of A-MPDUs to send] [destination IP address using (.)] [destination MAC address using (:)]\n" );
 	printf( "NOTE: if the 'number of frames in each A-MPDU' is 0, then the 'number of A-MPDUs to send' will be the number of frames\n"); 
 	printf( "\n");
 }
@@ -1839,7 +1841,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	// Read the size of each packet at IP level (including IP header)
+	// Read the size of each packet at IP level (including IP header) //QUESTION
 	int packet_size = atoi(argv[3]);
 
 	// Read the number of frames to be included in each A-MPDU
@@ -1899,10 +1901,13 @@ int main(int argc, char *argv[])
 		MPDUsize += zeropadding;
 	}
 
-	// If numFrames == 0 this means that I am sending normal frames. QUESTION: is this comment correct?
-	size_t dataLength =	sizeof(struct ieee80211_radiotap_header) + 
+	size_t dataLength;
+
+	// If numFrames == 0 this means that I am sending normal frames
+	if (numFrames == 0)
+	{
+		dataLength =	sizeof(struct ieee80211_radiotap_header) + 
 				sizeof(dataRate) + 
-				numFrames*(sizeof(struct mpdu_delimiter) + zeropadding) +
 				sizeof(struct ieee80211_qosframe) + 
 				sizeof(struct llc) + 
 				sizeof(struct snap) + 
@@ -1910,17 +1915,38 @@ int main(int argc, char *argv[])
 				sizeof(struct udphdr) + 
 				numCharDatagram*sizeof(char);
 
-	// If numFrames !=0, I have to add the length of the A-MPDU specific fields. QUESTION: is this comment correct?
-	if (numFrames!=0)
-	{
-		dataLength +=	(16-(sizeof(dataRate)%16)) + 
+	// If numFrames !=0, I have to add the length of the A-MPDU specific fields
+	} 
+	else {
+										// The PLCP header is built automatically so we don't have to count it
+		dataLength =	sizeof(struct ieee80211_radiotap_header) +	// Radiotap header goes first
+				sizeof(dataRate) +				// It is an element of the Radiotap header
+				16-(sizeof(dataRate)%16) +			// I have to align the Radiotap header
+				sizeof(struct ampdu_status) +			// It is an element of the Radiotap header
+				numFrames * (	sizeof(struct mpdu_delimiter) +		//A-MPDU delimiter
+						sizeof(struct ieee80211_qosframe) +	// Includes type, subtype, duration, MAC headers, sequence, QoS
+											// QUESTION: Do we need HT Ctl field?
+						sizeof(struct llc) +			// The MSDU starts with LLC and SNAP
+						sizeof(struct snap) + 
+						sizeof(struct iphdr) +			// IPv4 header
+						sizeof(struct udphdr) +			// UDP header
+						numCharDatagram*sizeof(char) +		// Payload
+											// QUESTION: do we have to include FCS length here? (2 bytes)
+						zeropadding				// Padding after the MPDU
+						);
+
+
+		/*
+		dataLength +=	(16-(sizeof(dataRate)%16)) +	// 
 				sizeof(struct ampdu_status) + 
-				(numFrames-1)*(sizeof(struct ieee80211_qosframe) + 
-				sizeof(struct llc) +
-				sizeof(struct snap) + 
-				sizeof(struct iphdr) + 
-				sizeof(struct udphdr) + 
-				numCharDatagram*sizeof(char));
+				(numFrames-1)*(	sizeof(struct ieee80211_qosframe) + 
+						sizeof(struct llc) +
+						sizeof(struct snap) + 
+						sizeof(struct iphdr) + 
+						sizeof(struct udphdr) + 
+						numCharDatagram*sizeof(char) 
+						);
+						*/
 	}
 
 	// Length of a data frame if no aggregation is used
