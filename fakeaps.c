@@ -47,8 +47,8 @@ http://www.binarytides.com/raw-udp-sockets-c-linux/
 #include <unistd.h>
 
 #include <netinet/in.h>
-#include <netinet/udp.h>	//Provides declarations for udp header
-#include <netinet/ip.h>		//Provides declarations for ip header
+#include <netinet/udp.h>	//Provides declarations for the UDP header
+#include <netinet/ip.h>		//Provides declarations for the IP header
 #include <arpa/inet.h>
 
 #include <net/if.h>
@@ -82,6 +82,7 @@ uint32_t mpduseq = 0;
 
 //This from https://stackoverflow.com/questions/11523844/802-11-fcs-crc32
 
+// there are 256 values
 const uint32_t crctable[] = {
    0x00000000L, 0x77073096L, 0xee0e612cL, 0x990951baL, 0x076dc419L, 0x706af48fL, 0xe963a535L, 0x9e6495a3L,
    0x0edb8832L, 0x79dcb8a4L, 0xe0d5e91eL, 0x97d2d988L, 0x09b64c2bL, 0x7eb17cbdL, 0xe7b82d07L, 0x90bf1d91L,
@@ -117,7 +118,10 @@ const uint32_t crctable[] = {
    0xb3667a2eL, 0xc4614ab8L, 0x5d681b02L, 0x2a6f2b94L, 0xb40bbe37L, 0xc30c8ea1L, 0x5a05df1bL, 0x2d02ef8dL
 };
 
-uint32_t crc32(uint32_t bytes_sz, const uint8_t *bytes)
+// returns a CRC of 32 bytes
+uint32_t crc32(	uint32_t bytes_sz, 	// size of the bytes
+		const uint8_t *bytes	// chain of bytes
+		)
 {
    uint32_t crc = ~0;
    uint32_t i;
@@ -1364,10 +1368,12 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 				uint8_t dataRate, 
 				uint8_t channel, 
 				const struct AccessPointDescriptor* apDescription, 
-				size_t* DataLength, uint8_t* sourceIP, 
+				size_t* DataLength, 
+				uint8_t* sourceIP, 
 				uint8_t* dstIP,				// destination IP address
 				const uint8_t* destinationMAC,		// destination MAC address
-				uint8_t numFrames,			// number of sub-frames
+				uint8_t numFrames,			// number of sub-frames	If it is 0, we build a normal frame. 
+									//			If it is >0, we build an A-MPDU
 				int numCharDatagram )
 {
 	static uint32_t cont = 1502;	// This is a random number for the ID field of the IP header
@@ -1394,13 +1400,19 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 	struct sockaddr_in sin;
 	struct pseudo_header psh;
 
-	// check if a padding is required (if the size of the MPDU is not a multiple of 4)
+	// check if a padding is required (if the size of the MPDU is not a multiple of 4, we add the padding)
 	if((MPDUsize%4)!=0)
 	{
 		zeropadding = (4-(MPDUsize%4));
+
+		// it seems that the padding does not have to be counted in the length. A-MPDU format is defined in page 812 of IEEE 802.11-2012
+		// MPDUsize += zeropadding;
 	}
 
-	// printf("MPDU size (including padding): %d bytes\n", MPDUsize);
+	if (debug_level > 1) {
+		printf("MPDU size (padding not included): %d bytes\n", MPDUsize);
+		printf("Padding size: %d bytes\n", zeropadding);
+	}
 
 	assert( packet != NULL );
 
@@ -1416,55 +1428,22 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 	radiotap->it_len = sizeof(*radiotap) + sizeof(dataRate);
 	radiotap->it_present = (1 << IEEE80211_RADIOTAP_RATE);
 	
-	if(numFrames != 0) { // we are building an A-MPDU
-
-		radiotap->it_len += (16-(sizeof(dataRate))) + sizeof(struct ampdu_status);
-		radiotap->it_present = (0x00000000 |(1 << IEEE80211_RADIOTAP_RATE)) | (1 << 20);
-	}
-
-	// Add the data rate for the radiotap header
-	assert( remainingBytes >= sizeof(dataRate) );
-	*packetIterator = (dataRate & IEEE80211_RATE_VAL);
-	packetIterator ++;
-	remainingBytes -= sizeof(dataRate);
-
-	if(numFrames != 0) { // we are building an A-MPDU
-		
-		assert ( remainingBytes >= (16-(sizeof(dataRate)%16)));
-		packetIterator += (16-(sizeof(dataRate)%16));
-		remainingBytes -= (16-(sizeof(dataRate)%16));
-
-		assert ( remainingBytes >= sizeof(struct ampdu_status) );
-		struct ampdu_status* status = (struct ampdu_status*) packetIterator;
-		packetIterator += sizeof(*status);
-		remainingBytes -= sizeof(*status);
-
-		status->reference = mpduseq;
-		mpduseq ++;
-		enum
-		{
-			A_MPDU_STATUS_NONE                = 0x00, 
-			A_MPDU_STATUS_REPORT_ZERO_LENGTH  = 0x01, 
-			A_MPDU_STATUS_IS_ZERO_LENGTH      = 0x02, 
-			A_MPDU_STATUS_LAST_KNOWN          = 0x04, 
-			A_MPDU_STATUS_LAST                = 0x08, 
-			A_MPDU_STATUS_DELIMITER_CRC_ERROR = 0x10, 
-			A_MPDU_STATUS_DELIMITER_CRC_KNOWN = 0x20  
-		};
-		status->flags = A_MPDU_STATUS_LAST_KNOWN || A_MPDU_STATUS_DELIMITER_CRC_KNOWN;
-	}
 
 	// we are building a normal frame (non-aggregated one)
 	if(numFrames==0)
 	{
+
+		// Add the data rate for the radiotap header
+		assert( remainingBytes >= sizeof(dataRate) );
+		*packetIterator = (dataRate & IEEE80211_RATE_VAL);
+		packetIterator ++;
+		remainingBytes -= sizeof(dataRate);
+
 		// Build the 802.11 header
 		assert( remainingBytes >= sizeof(struct ieee80211_htframe_addr4) );
 		struct ieee80211_htframe_addr4* dot80211 = (struct ieee80211_htframe_addr4*) packetIterator;
 		packetIterator += sizeof(*dot80211);
 		remainingBytes -= sizeof(*dot80211);
-
-		if ( debug_level > 0 )
-			printf("MPDU size: %d bytes\n", MPDUsize);
 
 		// ADDBA packet flags
 		dot80211->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_QOS;
@@ -1496,7 +1475,6 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 		// Destination QUESTION: the standard says N/A for this address
 		memcpy( dot80211->i_addr4, destinationMAC, IEEE80211_ADDR_LEN );
 
-
 		// Add the QoS Ctl field
 		dot80211->i_qos[0] = 0x00;
 		dot80211->i_qos[1] = 0x00;
@@ -1506,8 +1484,6 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 		dot80211->i_ht[1] = 0x7f;
 		dot80211->i_ht[2] = 0x00;
 		dot80211->i_ht[3] = 0x00;
-
-
 
 		// Add LLC header
 		assert(remainingBytes >= sizeof(struct llc) );
@@ -1600,6 +1576,39 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 	// we are building a A-MPDU. Defined in page 812 of IEEE 802.11-2012
 	else {	// numFrames!=0
 
+		radiotap->it_len += (16-(sizeof(dataRate))) + sizeof(struct ampdu_status);
+		radiotap->it_present = (0x00000000 |(1 << IEEE80211_RADIOTAP_RATE)) | (1 << 20);
+
+		// Add the data rate for the radiotap header
+		assert( remainingBytes >= sizeof(dataRate) );
+		*packetIterator = (dataRate & IEEE80211_RATE_VAL);
+		packetIterator ++;
+		remainingBytes -= sizeof(dataRate);
+
+		assert ( remainingBytes >= (16-(sizeof(dataRate)%16)));
+		packetIterator += (16-(sizeof(dataRate)%16));
+		remainingBytes -= (16-(sizeof(dataRate)%16));
+
+		assert ( remainingBytes >= sizeof(struct ampdu_status) );
+		struct ampdu_status* status = (struct ampdu_status*) packetIterator;
+		packetIterator += sizeof(*status);
+		remainingBytes -= sizeof(*status);
+
+		status->reference = mpduseq;
+		mpduseq ++;
+		enum
+		{
+			A_MPDU_STATUS_NONE                = 0x00, 
+			A_MPDU_STATUS_REPORT_ZERO_LENGTH  = 0x01, 
+			A_MPDU_STATUS_IS_ZERO_LENGTH      = 0x02, 
+			A_MPDU_STATUS_LAST_KNOWN          = 0x04, 
+			A_MPDU_STATUS_LAST                = 0x08, 
+			A_MPDU_STATUS_DELIMITER_CRC_ERROR = 0x10, 
+			A_MPDU_STATUS_DELIMITER_CRC_KNOWN = 0x20  
+		};
+		status->flags = A_MPDU_STATUS_LAST_KNOWN || A_MPDU_STATUS_DELIMITER_CRC_KNOWN;
+
+
 		for(int i = 0; i<numFrames; i++)	//for every subframe
 		{
 			assert( remainingBytes >= sizeof(struct mpdu_delimiter));
@@ -1641,7 +1650,7 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 			//printf("%i\n", *dot80211->i_fc);
 			dot80211->i_fc[1] = IEEE80211_FC1_DIR_FROMDS;
 			//printf("%i\n", *dot80211->i_fc);
-			//Add by CHdezFdez as an example
+
 			dot80211->i_dur[0] = 0x00;
 			dot80211->i_dur[1] = 0x00;
 			// Destination 
@@ -1768,6 +1777,7 @@ void constructDataPacket (	uint8_t* packet,	// the A-MPUDU multi-frame we are go
 
 			fcsField->FCSvalue = crc32(MPDUsize, MPDUStart);
 
+			// add the padding if needed
 			if (zeropadding!=0)
 			{
 				assert( remainingBytes >= zeropadding);
